@@ -4,7 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { AvatarType, CameraMode, Entity, ResourceType, Vector2 } from '../../types';
 import { Avatar } from './Avatar';
 import { FootstepParticles } from '../effects/VFX';
-import { getTerrainHeight } from '../../utils/terrainUtils';
+import { getTerrainHeight, getIslandBoundary } from '../../utils/terrainUtils';
 import { LAKES } from '../../utils/constants';
 
 const lerpAngle = (start: number, end: number, t: number) => {
@@ -104,14 +104,14 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
             // console.log(`State: ${isRunning ? 'RUN' : 'WALK'} | Speed: ${internalVel.current.length().toFixed(2)} | Keys: ${JSON.stringify(keys.current)}`);
         }
 
-        // Speed Tuning: Reduced for realistic human scale (1 unit ~ 1 meter)
-        // Walk: 6 units/sec
-        // Run: 14 units/sec (Increased for contrast)
-        const maxSpeed = isRunning ? (inWater ? 10 : 20) : (inWater ? 3 : 6);
+        // Speed Tuning: Extreme for exploration, but with inertia
+        // Walk: 18 units/sec
+        // Run: 60 units/sec (Superhuman exploration speed)
+        const maxSpeed = isRunning ? (inWater ? 25 : 60) : (inWater ? 8 : 18);
 
-        // Physics: Slower acceleration for weight, higher friction for stops
-        const accel = (isRunning ? 50 : 25) * (inWater ? 0.6 : 1.0);
-        const friction = (isRunning ? 10 : 7.5) * (inWater ? 2.0 : 1.0);
+        // Physics Tuning: Slightly lower friction/accel ratio for "weight"
+        const accel = (isRunning ? 120 : 70) * (inWater ? 0.6 : 1.0);
+        const friction = (isRunning ? 8 : 10) * (inWater ? 1.5 : 1.0);
 
         // Camera-Relative Movement Logic
         const input = new THREE.Vector3(0, 0, 0);
@@ -181,13 +181,19 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         let newX = THREE.MathUtils.clamp(pPos.x + internalVel.current.x * d, 0, worldSize);
         let newZ = THREE.MathUtils.clamp(pPos.z + internalVel.current.y * d, 0, worldSize);
 
-        // Island Boundary (Radial) - Prevent walking into water
-        const dist = Math.hypot(newX - worldSize / 2, newZ - worldSize / 2);
+        // Island Boundary (Irregular) - Prevent walking into water
+        const dx = newX - worldSize / 2;
+        const dz = newZ - worldSize / 2;
+        const dist = Math.hypot(dx, dz);
+        const angle = Math.atan2(dz, dx);
+
+        // Get the dynamic boundary for this specific angle
+        const dynamicRadius = getIslandBoundary(angle, islandRadius);
+
         // 5 unit buffer to stop right at the water's edge
-        const maxDist = islandRadius - 5;
+        const maxDist = dynamicRadius - 5;
 
         if (dist > maxDist) {
-            const angle = Math.atan2(newZ - worldSize / 2, newX - worldSize / 2);
             newX = (worldSize / 2) + Math.cos(angle) * maxDist;
             newZ = (worldSize / 2) + Math.sin(angle) * maxDist;
 
@@ -233,14 +239,16 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
         const speed = internalVel.current.length();
 
+        const animFreq = Math.sqrt(speed) * 2.5;
+
         if (mode === '1P') {
             // In 1P, character body ALWAYS matches camera yaw
             playerRef.current.rotation.y = cameraRotation.current.y;
-            walkTime.current += d * speed * (inWater ? 0.6 : 0.8);
+            walkTime.current += d * animFreq * (inWater ? 0.6 : 1.0);
         } else if (speed > 0.1) {
-            // Animation Sync: 
-            // 0.8 multiplier = matches foot speed to ground speed for ~6 units/sec
-            walkTime.current += d * speed * (inWater ? 0.6 : 0.8);
+            // Animation Sync using new SQRT scaling
+            walkTime.current += d * animFreq * (inWater ? 0.6 : 1.0);
+
             const currentPhaseIndex = Math.floor(walkTime.current / Math.PI);
             if (currentPhaseIndex !== lastFootIndex.current) {
                 lastFootIndex.current = currentPhaseIndex;

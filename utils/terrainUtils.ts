@@ -36,17 +36,41 @@ const fbm = (p: THREE.Vector2, octaves: number = 4) => {
     return value;
 };
 
+export const getIslandBoundary = (angle: number, baseRadius: number = ISLAND_RADIUS): number => {
+    // Determine a "seed" coordinate on a unit circle from the angle
+    const sx = Math.cos(angle);
+    const sz = Math.sin(angle);
+
+    // Sampling noise in circle-space ensures it's perfectly periodic (seamless at 0/2PI)
+    // Frequency 1.2 = large scale "wobble"
+    // Frequency 4.0 = mid scale inlets
+    // Frequency 10.0 = small scale "rocks/jaggies"
+    const p1 = new THREE.Vector2(sx * 1.2, sz * 1.2);
+    const p2 = new THREE.Vector2(sx * 4.0, sz * 4.0);
+    const p3 = new THREE.Vector2(sx * 10.0, sz * 10.0);
+
+    const noise1 = fbm(p1, 2) * 45;   // Large features (+/- 45m)
+    const noise2 = noise(p2) * 15;    // Medium features (+/- 15m)
+    const noise3 = noise(p3) * 5;     // Small features (+/- 5m)
+
+    return baseRadius + noise1 + noise2 + noise3;
+};
+
 export const getTerrainHeight = (x: number, z: number, worldSize: number = WORLD_SIZE, islandRadius: number = ISLAND_RADIUS): number => {
     const center = worldSize / 2;
     const dx = x - center;
     const dz = z - center;
     const dist = Math.sqrt(dx * dx + dz * dz);
+    const angle = Math.atan2(dz, dx);
 
-    // Falloff: Terrain only on the island
-    const beachWidth = 50;
-    const falloff = 1 - THREE.MathUtils.smoothstep(dist, islandRadius - beachWidth, islandRadius);
+    // Get dynamic boundary for this specific angle
+    const dynamicRadius = getIslandBoundary(angle, islandRadius);
 
-    if (dist > islandRadius) return -3; // Sea floor
+    // Falloff: Terrain only on the island, using the dynamic boundary
+    const beachWidth = 40;
+    const falloff = 1 - THREE.MathUtils.smoothstep(dist, dynamicRadius - beachWidth, dynamicRadius);
+
+    if (dist > dynamicRadius) return -3.5; // Sea floor
 
     // Generate Base Relief
     const p = new THREE.Vector2(x * 0.04, z * 0.04);
@@ -58,10 +82,10 @@ export const getTerrainHeight = (x: number, z: number, worldSize: number = WORLD
 
     let height = (baseHeight + detailHeight - 3) * falloff;
 
-    // Center plateau for spawn stability
+    // Center plateau for spawn stability (still circular for simplicity at center)
     const distFromCenter = Math.hypot(dx, dz);
     if (distFromCenter < 25) {
-        height *= (distFromCenter / 25);
+        height = THREE.MathUtils.lerp(0, height, THREE.MathUtils.smoothstep(distFromCenter, 0, 25));
     }
 
     // Carve Lakes - Apply depth where lakes exist

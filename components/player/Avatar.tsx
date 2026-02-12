@@ -164,8 +164,14 @@ export const Avatar: React.FC<AvatarProps> = ({ velocity, isWet, isFirstPerson, 
 
                 {/* Torso & Upper Body */}
                 <group ref={chest} position={[0, 0.3, 0]}>
-                    <mesh castShadow position={[0, 0.25, 0]}>
-                        <boxGeometry args={[0.48, 0.55, 0.26]} />
+                    {/* Mid-section / Waist Connector to prevent holes */}
+                    <mesh castShadow position={[0, 0, 0]}>
+                        <boxGeometry args={[0.34, 0.4, 0.22]} />
+                        <meshStandardMaterial color={style.top} />
+                    </mesh>
+
+                    <mesh castShadow position={[0, 0.15, 0]}>
+                        <boxGeometry args={[0.48, 0.7, 0.26]} />
                         <meshStandardMaterial color={style.top} />
                     </mesh>
 

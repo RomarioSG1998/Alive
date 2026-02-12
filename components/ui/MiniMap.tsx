@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Vector2, Entity, ResourceType } from '../../types';
 import { useGameStore } from '../../store/gameStore';
+import { getIslandBoundary } from '../../utils/terrainUtils';
 
 interface MiniMapProps {
   playerPosition: Vector2;
@@ -30,12 +31,8 @@ export const MiniMap: React.FC<MiniMapProps> = ({
 
   // Transform World Pos -> Map Pos (Relative to Center of Map UI)
   const worldToMap = (x: number, y: number) => {
-    // 1. Center the coordinate system on the World Center
     const relativeX = x - centerX;
     const relativeY = y - centerY;
-
-    // 2. Scale to Map UI
-    // 3. Offset to center of Map UI div (mapSize/2)
     return {
       left: (relativeX * scale) + (mapSize / 2),
       top: (relativeY * scale) + (mapSize / 2)
@@ -44,6 +41,37 @@ export const MiniMap: React.FC<MiniMapProps> = ({
 
   // Convert Center for Island Circles
   const mapCenter = worldToMap(centerX, centerY);
+
+  // Generate Irregular Island Shapes (Sand and Forest)
+  const islandPaths = useMemo(() => {
+    const points = 48; // Resolution of the map outline
+    const beachPoints: string[] = [];
+    const forestPoints: string[] = [];
+    const beachOffset = 0;
+    const forestOffset = 20;
+
+    for (let i = 0; i < points; i++) {
+      const angle = (i / points) * Math.PI * 2;
+      const boundary = getIslandBoundary(angle, islandRadius);
+
+      // Beach line
+      const rBeach = boundary - beachOffset;
+      const xB = (Math.cos(angle) * rBeach * scale) + (mapSize / 2);
+      const yB = (Math.sin(angle) * rBeach * scale) + (mapSize / 2);
+      beachPoints.push(`${xB},${yB}`);
+
+      // Forest line
+      const rForest = boundary - forestOffset;
+      const xF = (Math.cos(angle) * rForest * scale) + (mapSize / 2);
+      const yF = (Math.sin(angle) * rForest * scale) + (mapSize / 2);
+      forestPoints.push(`${xF},${yF}`);
+    }
+
+    return {
+      beach: beachPoints.join(' '),
+      forest: forestPoints.join(' ')
+    };
+  }, [islandRadius, scale, mapSize]);
 
   // Rotação do indicador do jogador baseada na velocidade
   const rotation = Math.atan2(velocity.x, -velocity.y) * (180 / Math.PI);
@@ -58,27 +86,26 @@ export const MiniMap: React.FC<MiniMapProps> = ({
         {/* Camada 1: Oceano (Fundo Profundo) */}
         <div className="absolute inset-0 bg-[#0f172a]" />
 
-        {/* Camada 2: Base da Ilha (Areia) */}
-        <div
-          className="absolute rounded-full bg-[#d4b483] opacity-20"
-          style={{
-            width: islandRadius * 2 * scale,
-            height: islandRadius * 2 * scale,
-            left: mapCenter.left - (islandRadius * scale),
-            top: mapCenter.top - (islandRadius * scale),
-          }}
-        />
-
-        {/* Camada 3: Interior da Ilha (Floresta) */}
-        <div
-          className="absolute rounded-full bg-[#064e3b] opacity-40"
-          style={{
-            width: (islandRadius - 20) * 2 * scale,
-            height: (islandRadius - 20) * 2 * scale,
-            left: mapCenter.left - ((islandRadius - 20) * scale),
-            top: mapCenter.top - ((islandRadius - 20) * scale),
-          }}
-        />
+        {/* Camada 2 & 3: Ilha Irregular (SVG) */}
+        <svg
+          width={mapSize}
+          height={mapSize}
+          className="absolute inset-0 pointer-events-none"
+          viewBox={`0 0 ${mapSize} ${mapSize}`}
+        >
+          {/* Beach / Sand Layer */}
+          <polygon
+            points={islandPaths.beach}
+            fill="#d4b483"
+            fillOpacity="0.25"
+          />
+          {/* Forest / Interior Layer */}
+          <polygon
+            points={islandPaths.forest}
+            fill="#064e3b"
+            fillOpacity="0.45"
+          />
+        </svg>
 
         {/* Recursos (Árvores e Pedras) */}
         {entities.map((ent) => {

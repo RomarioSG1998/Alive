@@ -9,7 +9,7 @@ import { GameCanvas } from './components/GameCanvas';
 import { MiniMap } from './components/ui/MiniMap';
 import { useGameStore } from './store/gameStore';
 import { LAKES } from './utils/constants';
-import { getTerrainHeight } from './utils/terrainUtils';
+import { getTerrainHeight, getIslandBoundary } from './utils/terrainUtils';
 import { storageService } from './services/storageService';
 import { PlayerSetup } from './components/ui/PlayerSetup';
 import { SavedGameState } from './types';
@@ -126,8 +126,9 @@ export default function App() {
     }
 
     const angle = Math.random() * Math.PI * 2;
-    // Keep entities off the beach (Radius - 50)
-    const radius = 20 + Math.random() * (ISLAND_RADIUS - 50);
+    const dynamicRadius = getIslandBoundary(angle, ISLAND_RADIUS);
+    // Keep entities off the beach (Radius - 40)
+    const radius = 20 + Math.random() * (dynamicRadius - 40);
 
     const x = CENTER.x + Math.cos(angle) * radius;
     const y = CENTER.y + Math.sin(angle) * radius;
