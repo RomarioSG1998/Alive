@@ -176,6 +176,10 @@ export default function App() {
 
   }, [setLastAttack, setLastHit, setEntities, setInventory, addLog]);
 
+  // Double-tap state
+  const lastTap = useRef<{ key: string, time: number }>({ key: '', time: 0 });
+  const isAutoRunning = useRef(false);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Robust check: Use both e.code (physical) and e.key (value)
@@ -193,10 +197,21 @@ export default function App() {
       keysPressed.current[key] = true;
 
       // ALIASING FOR ROBUSTNESS
-      if (code === 'ArrowUp' || key === 'ArrowUp') keysPressed.current['KeyW'] = true;
-      if (code === 'ArrowDown' || key === 'ArrowDown') keysPressed.current['KeyS'] = true;
-      if (code === 'ArrowLeft' || key === 'ArrowLeft') keysPressed.current['KeyA'] = true;
-      if (code === 'ArrowRight' || key === 'ArrowRight') keysPressed.current['KeyD'] = true;
+      let moveKey = '';
+      if (code === 'ArrowUp' || key === 'ArrowUp') { keysPressed.current['KeyW'] = true; moveKey = 'ArrowUp'; }
+      if (code === 'ArrowDown' || key === 'ArrowDown') { keysPressed.current['KeyS'] = true; moveKey = 'ArrowDown'; }
+      if (code === 'ArrowLeft' || key === 'ArrowLeft') { keysPressed.current['KeyA'] = true; moveKey = 'ArrowLeft'; }
+      if (code === 'ArrowRight' || key === 'ArrowRight') { keysPressed.current['KeyD'] = true; moveKey = 'ArrowRight'; }
+
+      // DOUBLE TAP TO RUN LOGIC
+      if (moveKey) {
+        const now = Date.now();
+        if (lastTap.current.key === moveKey && (now - lastTap.current.time) < 300) {
+          keysPressed.current['ShiftLeft'] = true; // Engage Run
+          isAutoRunning.current = true;
+        }
+        lastTap.current = { key: moveKey, time: now };
+      }
 
       if (e.code === 'KeyV') {
         setCameraMode(cameraMode === '3P' ? '1P' : cameraMode === '1P' ? '2P' : '3P');
@@ -213,10 +228,17 @@ export default function App() {
       keysPressed.current[key] = false;
 
       // CLEAR ALIASES
-      if (code === 'ArrowUp' || key === 'ArrowUp') keysPressed.current['KeyW'] = false;
-      if (code === 'ArrowDown' || key === 'ArrowDown') keysPressed.current['KeyS'] = false;
-      if (code === 'ArrowLeft' || key === 'ArrowLeft') keysPressed.current['KeyA'] = false;
-      if (code === 'ArrowRight' || key === 'ArrowRight') keysPressed.current['KeyD'] = false;
+      let moveKey = '';
+      if (code === 'ArrowUp' || key === 'ArrowUp') { keysPressed.current['KeyW'] = false; moveKey = 'ArrowUp'; }
+      if (code === 'ArrowDown' || key === 'ArrowDown') { keysPressed.current['KeyS'] = false; moveKey = 'ArrowDown'; }
+      if (code === 'ArrowLeft' || key === 'ArrowLeft') { keysPressed.current['KeyA'] = false; moveKey = 'ArrowLeft'; }
+      if (code === 'ArrowRight' || key === 'ArrowRight') { keysPressed.current['KeyD'] = false; moveKey = 'ArrowRight'; }
+
+      // Stop running if we release the double-tapped key
+      if (isAutoRunning.current && moveKey === lastTap.current.key) {
+        keysPressed.current['ShiftLeft'] = false;
+        isAutoRunning.current = false;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -230,6 +252,17 @@ export default function App() {
 
   const onFootstep = useCallback((isWet: boolean) => {
     audioService.playFootstep(isWet);
+  }, []);
+
+  // Pointer Lock UI State
+  const [isLocked, setIsLocked] = useState(false);
+
+  useEffect(() => {
+    const onLockChange = () => {
+      setIsLocked(!!document.pointerLockElement);
+    };
+    document.addEventListener('pointerlockchange', onLockChange);
+    return () => document.removeEventListener('pointerlockchange', onLockChange);
   }, []);
 
   const handleBuild = () => {
@@ -259,47 +292,75 @@ export default function App() {
         keysPressed={keysPressed}
       />
 
-      <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between">
-        <div className="flex justify-between items-start pointer-events-auto">
-          <div className="flex flex-col gap-4">
-            <h1 className="text-4xl font-black tracking-tighter text-zinc-800 opacity-90 uppercase italic mono drop-shadow-md">ALIVE</h1>
-            <HUD avatarUrl={avatarUrl} />
+      {/* UI Overlay Wrapper */}
+      <div className="absolute inset-0 pointer-events-none">
+
+        {/* Click to Play Overlay */}
+        {!isLocked && (health > 0) && (
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center pointer-events-auto cursor-pointer" onClick={() => document.body.requestPointerLock()}>
+            <div className="bg-black/80 text-white px-8 py-4 rounded-2xl border border-white/10 animate-pulse text-center">
+              <h2 className="text-2xl font-bold mb-2">PAUSED</h2>
+              <p className="text-zinc-400">Clique para continuar</p>
+            </div>
+          </div>
+        )}
+
+        {/* Crosshair */}
+        {isLocked && (health > 0) && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-white/80 rounded-full shadow-lg shadow-black/50 z-40 pointer-events-none mix-blend-difference" />
+        )}
+
+        {/* Main HUD Container */}
+        <div className="absolute inset-0 p-8 flex flex-col justify-between">
+          <div className="flex justify-between items-start pointer-events-auto">
+            <div className="flex flex-col gap-4">
+              <h1 className="text-4xl font-black tracking-tighter text-zinc-800 opacity-90 uppercase italic mono drop-shadow-md">ALIVE</h1>
+              <HUD avatarUrl={avatarUrl} />
+            </div>
+
+            <div className="flex flex-col items-end gap-6">
+              <button onClick={handleBuild} className="px-6 py-3 bg-emerald-600/80 hover:bg-emerald-500 rounded-2xl border border-white/20 text-white mono text-xs font-bold transition-all hover:scale-105 pointer-events-auto shadow-lg shadow-emerald-900/20">
+                <i className="fas fa-hammer mr-2"></i> Construir (5W, 3S)
+              </button>
+              <MiniMap
+                playerPosition={playerPosition}
+                worldSize={WORLD_SIZE}
+                islandRadius={ISLAND_RADIUS}
+                velocity={playerVelocity}
+                entities={entities}
+              />
+            </div>
           </div>
 
-          <div className="flex flex-col items-end gap-6">
-            <button onClick={handleBuild} className="px-6 py-3 bg-emerald-600/80 hover:bg-emerald-500 rounded-2xl border border-white/20 text-white mono text-xs font-bold transition-all hover:scale-105 pointer-events-auto shadow-lg shadow-emerald-900/20">
-              <i className="fas fa-hammer mr-2"></i> Construir (5W, 3S)
-            </button>
-            <MiniMap
-              playerPosition={playerPosition}
-              worldSize={WORLD_SIZE}
-              islandRadius={ISLAND_RADIUS}
-              velocity={playerVelocity}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-between items-end">
-          <div className="w-96 h-48 overflow-hidden flex flex-col-reverse gap-3 mask-linear-fade pointer-events-none">
-            {log.map((entry, i) => (
-              <div key={i} className={`text-sm transition-all duration-1000 ${i === 0 ? 'text-zinc-900 font-bold translate-x-2' : 'text-zinc-500 opacity-60'}`}>
-                {entry}
+          <div className="flex justify-between items-end">
+            <div className="flex flex-col gap-2">
+              {/* Control Hints */}
+              <div className="px-4 py-2 bg-black/30 backdrop-blur-md rounded-lg text-white/60 text-xs font-mono border border-white/5">
+                [WASD] Mover • [Shift] Correr • [Mouse] Olhar • [ESC] Menu
               </div>
-            ))}
-          </div>
 
-          <div className="flex flex-col gap-3 p-4 bg-white/20 rounded-3xl backdrop-blur-xl border border-white/40 shadow-xl pointer-events-auto">
-            <div className="flex gap-4">
-              {inventory.map(item => (
-                <div key={item.type} className="flex flex-col items-center">
-                  <div className="w-14 h-14 bg-white/40 border border-white/40 flex items-center justify-center rounded-2xl shadow-sm">
-                    {item.type === ResourceType.WOOD && <i className="fas fa-tree text-amber-900 text-xl"></i>}
-                    {item.type === ResourceType.STONE && <i className="fas fa-cube text-zinc-600 text-xl"></i>}
-                    {item.type === ResourceType.FOOD && <i className="fas fa-apple-whole text-rose-600 text-xl"></i>}
+              <div className="w-96 h-40 overflow-hidden flex flex-col-reverse gap-2 mask-linear-fade pointer-events-none">
+                {log.map((entry, i) => (
+                  <div key={i} className={`text-sm transition-all duration-1000 ${i === 0 ? 'text-zinc-900 font-bold translate-x-2' : 'text-zinc-500 opacity-60'}`}>
+                    {entry}
                   </div>
-                  <span className="text-[10px] mt-2 font-black mono text-zinc-900">{item.count || 0}</span>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 p-4 bg-white/20 rounded-3xl backdrop-blur-xl border border-white/40 shadow-xl pointer-events-auto">
+              <div className="flex gap-4">
+                {inventory.map(item => (
+                  <div key={item.type} className="flex flex-col items-center">
+                    <div className="w-14 h-14 bg-white/40 border border-white/40 flex items-center justify-center rounded-2xl shadow-sm">
+                      {item.type === ResourceType.WOOD && <i className="fas fa-tree text-amber-900 text-xl"></i>}
+                      {item.type === ResourceType.STONE && <i className="fas fa-cube text-zinc-600 text-xl"></i>}
+                      {item.type === ResourceType.FOOD && <i className="fas fa-apple-whole text-rose-600 text-xl"></i>}
+                    </div>
+                    <span className="text-[10px] mt-2 font-black mono text-zinc-900">{item.count || 0}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

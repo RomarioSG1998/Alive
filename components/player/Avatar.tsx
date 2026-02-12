@@ -36,8 +36,8 @@ export const Avatar: React.FC<AvatarProps> = ({ velocity, isWet, isFirstPerson, 
         // Animation blending and scales
         const isMoving = speed > 0.5;
         // Animation Tuning:
-        // Swing: Adjusted for lower speeds (multiplier 0.007 -> 0.15)
-        const swing = Math.min(1.0, speed * 0.15);
+        // Swing: Adjusted so Walk (~6) is gentle and Run (~12) is intense
+        const swing = Math.min(1.0, speed * 0.08);
 
         const lCycle = Math.sin(phase);
         const rCycle = Math.sin(phase + Math.PI);

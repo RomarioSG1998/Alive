@@ -48,6 +48,28 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         }
     }, [initialPos]);
 
+    const cameraRotation = useRef({ x: 0.3, y: Math.PI }); // x=pitch, y=yaw
+
+    useEffect(() => {
+        const onMouseMove = (e: MouseEvent) => {
+            if (document.pointerLockElement === document.body) {
+                cameraRotation.current.y -= e.movementX * 0.003;
+                cameraRotation.current.x -= e.movementY * 0.003;
+                // Clamp Pitch (-0.1 to 1.0 radians)
+                cameraRotation.current.x = Math.max(-0.1, Math.min(1.2, cameraRotation.current.x));
+            }
+        };
+        const onClick = () => document.body.requestPointerLock();
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('click', onClick);
+
+        return () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('click', onClick);
+        };
+    }, []);
+
     useFrame((state, delta) => {
         if (!playerRef.current || !internalVel.current) return;
 
@@ -58,14 +80,19 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const distFromCenter = Math.hypot(pPos.x - worldSize / 2, pPos.z - worldSize / 2);
         const inWater = distFromCenter > islandRadius;
 
+        // DEBUG: Check Run State
+        if (internalVel.current.length() > 0.1) {
+            // console.log(`State: ${isRunning ? 'RUN' : 'WALK'} | Speed: ${internalVel.current.length().toFixed(2)} | Keys: ${JSON.stringify(keys.current)}`);
+        }
+
         // Speed Tuning: Reduced for realistic human scale (1 unit ~ 1 meter)
         // Walk: 6 units/sec
-        // Run: 12 units/sec
-        const maxSpeed = isRunning ? (inWater ? 8 : 12) : (inWater ? 3 : 6);
+        // Run: 14 units/sec (Increased for contrast)
+        const maxSpeed = isRunning ? (inWater ? 8 : 14) : (inWater ? 3 : 6);
 
         // Physics: Slower acceleration for weight, higher friction for stops
-        const accel = (isRunning ? 40 : 25) * (inWater ? 0.6 : 1.0);
-        const friction = inWater ? 10 : 7.5;
+        const accel = (isRunning ? 50 : 25) * (inWater ? 0.6 : 1.0);
+        const friction = (isRunning ? 10 : 7.5) * (inWater ? 2.0 : 1.0);
 
         // Camera-Relative Movement Logic
         const input = new THREE.Vector3(0, 0, 0);
@@ -74,18 +101,11 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const moveForward = new THREE.Vector3();
         const moveRight = new THREE.Vector3();
 
-        if (mode === '3P') {
-            // In 3P Fixed-Follow mode, use absolute world directions to prevent 
-            // camera-lag feedback loops (which cause curving paths).
-            moveForward.set(0, 0, -1); // North
-            moveRight.set(1, 0, 0);    // East
-        } else {
-            // In 1P or other modes, use Camera direction
-            camera.getWorldDirection(moveForward);
-            moveForward.y = 0;
-            moveForward.normalize();
-            moveRight.crossVectors(moveForward, new THREE.Vector3(0, 1, 0));
-        }
+        // Calculate Camera Direction (for Movement) based on rotation
+        const camY = cameraRotation.current.y;
+        // Forward is "into the screen" relative to camera, which is -sin(y), -cos(y)
+        moveForward.set(-Math.sin(camY), 0, -Math.cos(camY)).normalize();
+        moveRight.set(-Math.cos(camY), 0, Math.sin(camY)).normalize();
 
         // Apply inputs
         if (keys.current['KeyW'] || keys.current['ArrowUp']) input.add(moveForward);
@@ -180,15 +200,23 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         let lookTarget = new THREE.Vector3();
 
         if (mode === '3P') {
-            // Improved Camera: Closer, lower, and more dynamic
-            const camHeight = 14 + (speed * 0.015);
-            const camDist = 18 + (speed * 0.025);
-            camTarget.set(pPos.x, camHeight, pPos.z + camDist);
-            // Look slightly above the player, into the distance
-            lookTarget.set(pPos.x, 2.5, pPos.z - 10);
+            // Mouse Orbit Logic
+            const rotY = cameraRotation.current.y;
+            const rotX = cameraRotation.current.x;
+            const camDist = 18;
 
-            // Standard smooth lerp for 3P
-            camera.position.lerp(camTarget, 0.08);
+            // Calculate position on sphere surface
+            const hDist = camDist * Math.cos(rotX);
+            const vDist = camDist * Math.sin(rotX); // Height
+
+            const offsetX = Math.sin(rotY) * hDist;
+            const offsetZ = Math.cos(rotY) * hDist;
+
+            camTarget.set(pPos.x + offsetX, pPos.y + 10 + vDist, pPos.z + offsetZ);
+            lookTarget.set(pPos.x, 2.5, pPos.z);
+
+            // Responsive Lerp for orbit
+            camera.position.lerp(camTarget, 0.2);
 
         } else if (mode === '1P') {
             const bobY = Math.sin(walkTime.current) * (speed * 0.0006);

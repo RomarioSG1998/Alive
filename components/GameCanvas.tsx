@@ -7,6 +7,7 @@ import { Vector2 } from '../types';
 import { PlayerController } from './player/PlayerController';
 import { ForestElement } from './world/ForestElement';
 import { GrassField } from './world/GrassField';
+import { FlowerField } from './world/FlowerField';
 import { ShakeGroup } from './effects/ShakeGroup';
 import { Terrain } from './world/Terrain';
 import { useGameStore } from '../store/gameStore';
@@ -49,25 +50,26 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           lastAttack={lastAttack}
         />
 
-        {/* Lighting & Environment */}
-        <Sky sunPosition={[100, 20, 100]} turbidity={0.5} rayleigh={0.5} mieCoefficient={0.005} mieDirectionalG={0.8} />
-        <ambientLight intensity={0.4} />
+        {/* Turn on the SUN */}
+        <Sky sunPosition={[100, 40, 20]} turbidity={0.1} rayleigh={0.5} mieCoefficient={0.005} mieDirectionalG={0.8} />
+        <ambientLight intensity={0.6} />
         <directionalLight
-          position={[50, 80, 50]}
-          intensity={1.2}
+          position={[50, 100, 50]}
+          intensity={2.0}
           castShadow
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-60}
-          shadow-camera-right={60}
-          shadow-camera-top={60}
-          shadow-camera-bottom={-60}
+          shadow-camera-left={-80}
+          shadow-camera-right={80}
+          shadow-camera-top={80}
+          shadow-camera-bottom={-80}
         />
-        <fog attach="fog" args={['#bae6fd', 40, 140]} />
+        {/* Fog Removed for clear view */}
 
         {/* World Elements */}
         <group>
           <Terrain worldSize={worldSize} islandRadius={islandRadius} />
           <GrassField islandRadius={islandRadius} worldSize={worldSize} />
+          <FlowerField islandRadius={islandRadius} worldSize={worldSize} />
         </group>
 
         {entities.map((ent) => (
