@@ -14,6 +14,17 @@ export interface Vector2 {
     y: number;
 }
 
+export interface WorldPosition {
+    x: number;
+    y: number;
+    z: number;
+}
+
+export interface AimState {
+    origin: { x: number; y: number; z: number };
+    dir: { x: number; y: number; z: number };
+}
+
 export interface Entity {
     id: string;
     type: ResourceType | 'PLAYER' | 'ENEMY';
@@ -41,6 +52,7 @@ export interface GameState {
 }
 
 export type CameraMode = '1P' | '2P' | '3P';
+export type WeatherType = 'sunny' | 'cloudy' | 'drizzle' | 'storm';
 
 export type AvatarType = 'gemini' | 'classic' | 'blocky' | 'robot';
 
@@ -58,4 +70,3 @@ export interface SavedGameState {
     structures: Entity[];
     lastSaved: number;
 }
-

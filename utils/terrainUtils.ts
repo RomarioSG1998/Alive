@@ -99,13 +99,70 @@ export const getTerrainHeight = (x: number, z: number, worldSize: number = WORLD
         }
     });
 
+    // Add Mountain Plateau (Buildable area)
+    const mX = center + 100;
+    const mZ = center - 80;
+    const mDist = Math.hypot(x - mX, z - mZ);
+    const mRadius = 80; // Slightly larger base for a better plateau
+    const plateauRadius = 25;
+    if (mDist < mRadius) {
+        // Plateau logic: constant height at center, smooth falloff at edges
+        const falloff = 1 - THREE.MathUtils.smoothstep(mDist, plateauRadius, mRadius);
+        const mHeight = 25 * falloff;
+
+        // Add very subtle organic variation (non-pointy)
+        const organicDetail = noise(new THREE.Vector2(x * 0.05, z * 0.05)) * 1.2;
+        height += mHeight + (mDist < mRadius ? organicDetail : 0);
+    }
+
     return Math.max(-12, height);
 };
 
-export const getTerrainColor = (height: number): string => {
-    if (height < -0.1) return '#d6c68b'; // Sand
-    if (height < 2) return '#3f6212';   // Grass
-    if (height < 6) return '#166534';   // Forest
-    if (height < 10) return '#14532d';  // Dense Forest
-    return '#4a5568';                   // High Peaks
+export const getTerrainColor = (height: number, slope: number = 0, variation: number = 0): string => {
+    const sand = new THREE.Color('#d7c08a');
+    const dryGrass = new THREE.Color('#6b8e23');
+    const lushGrass = new THREE.Color('#2f6f2a');
+    const forest = new THREE.Color('#2f6f2a');
+    const deepForest = new THREE.Color('#2e7d32');
+    const wetRock = new THREE.Color('#5f6b5e');
+
+    const v = THREE.MathUtils.clamp(variation, -0.25, 0.25);
+    const steepness = THREE.MathUtils.clamp(slope, 0, 1);
+
+    const color = new THREE.Color();
+
+    if (height < -0.1) {
+        color.copy(sand).offsetHSL(0.01 * v, -0.05 + v * 0.2, 0.04 * v);
+        return `#${color.getHexString()}`;
+    }
+
+    if (height < 2) {
+        // Transition band from beach to low grass
+        const t = THREE.MathUtils.smoothstep(height, -0.1, 2);
+        color.copy(sand).lerp(dryGrass, t);
+        color.offsetHSL(0.01 * v, -0.06 * steepness, 0.06 * v);
+        return `#${color.getHexString()}`;
+    }
+
+    if (height < 6) {
+        const t = THREE.MathUtils.smoothstep(height, 2, 6);
+        color.copy(dryGrass).lerp(lushGrass, t);
+        color.lerp(wetRock, steepness * 0.12);
+        color.offsetHSL(0.01 * v, 0.05 - steepness * 0.08, 0.05 * v);
+        return `#${color.getHexString()}`;
+    }
+
+    if (height < 10) {
+        const t = THREE.MathUtils.smoothstep(height, 6, 10);
+        color.copy(forest).lerp(deepForest, t);
+        color.lerp(wetRock, steepness * 0.08);
+        color.offsetHSL(0.008 * v, 0.02 - steepness * 0.04, 0.05 * v);
+        return `#${color.getHexString()}`;
+    }
+
+    // Mountaintop keeps same grass tonality as island, slightly darker only by slope.
+    color.copy(deepForest).lerp(forest, 0.45);
+    color.lerp(wetRock, steepness * 0.08);
+    color.offsetHSL(0.006 * v, 0.02 - steepness * 0.03, 0.04 * v);
+    return `#${color.getHexString()}`;
 };

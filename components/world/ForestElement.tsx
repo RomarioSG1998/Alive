@@ -121,6 +121,86 @@ export const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity 
                 </mesh>
             );
         case ResourceType.FOOD:
+            if ((entity.variant || 0) >= 10) {
+                if ((entity.variant || 0) >= 20) {
+                    const isBoarCarcass = entity.variant === 21;
+                    return (
+                        <group rotation={[0, rot, 0]} scale={scale}>
+                            <mesh castShadow position={[0, 0.18, 0]} scale={[1.35, 0.45, 0.95]}>
+                                <capsuleGeometry args={[0.24, 0.35, 6, 10]} />
+                                <meshStandardMaterial color={isBoarCarcass ? "#4b382c" : "#9b6e49"} roughness={1} />
+                            </mesh>
+                            <mesh castShadow position={[0.48, 0.16, 0]} scale={[0.55, 0.45, 0.55]}>
+                                <sphereGeometry args={[0.22, 10, 8]} />
+                                <meshStandardMaterial color={isBoarCarcass ? "#3e2f24" : "#835a3d"} roughness={1} />
+                            </mesh>
+                            {[[-0.2, 0.05, -0.2], [-0.2, 0.05, 0.2], [0.2, 0.05, -0.2], [0.2, 0.05, 0.2]].map((p, i) => (
+                                <mesh key={i} castShadow position={[p[0], p[1], p[2]]} rotation={[0.15, 0, 0.9]}>
+                                    <cylinderGeometry args={[0.03, 0.04, 0.22]} />
+                                    <meshStandardMaterial color="#2f241c" roughness={1} />
+                                </mesh>
+                            ))}
+                        </group>
+                    );
+                }
+                const isBoar = entity.variant === 11;
+                return (
+                    <group rotation={[0, rot, 0]} scale={scale}>
+                        {isBoar ? (
+                            <>
+                                {/* Boar body */}
+                                <mesh castShadow position={[0, 0.38, 0]} scale={[1.4, 0.9, 0.8]}>
+                                    <capsuleGeometry args={[0.26, 0.45, 6, 10]} />
+                                    <meshStandardMaterial color="#5b4635" roughness={0.95} />
+                                </mesh>
+                                <mesh castShadow position={[0.42, 0.42, 0]} scale={[0.9, 0.75, 0.75]}>
+                                    <sphereGeometry args={[0.22, 12, 10]} />
+                                    <meshStandardMaterial color="#4a3729" roughness={0.95} />
+                                </mesh>
+                                <mesh castShadow position={[0.6, 0.36, 0]} scale={[0.42, 0.32, 0.32]}>
+                                    <sphereGeometry args={[0.2, 10, 8]} />
+                                    <meshStandardMaterial color="#8d6e63" roughness={0.9} />
+                                </mesh>
+                                <mesh castShadow position={[0.67, 0.37, 0.08]} rotation={[0, 0, 0.2]}>
+                                    <coneGeometry args={[0.02, 0.09, 4]} />
+                                    <meshStandardMaterial color="#f5f5f4" />
+                                </mesh>
+                                <mesh castShadow position={[0.67, 0.37, -0.08]} rotation={[0, 0, 0.2]}>
+                                    <coneGeometry args={[0.02, 0.09, 4]} />
+                                    <meshStandardMaterial color="#f5f5f4" />
+                                </mesh>
+                            </>
+                        ) : (
+                            <>
+                                {/* Deer body */}
+                                <mesh castShadow position={[0, 0.44, 0]} scale={[1.45, 0.85, 0.72]}>
+                                    <capsuleGeometry args={[0.22, 0.55, 6, 10]} />
+                                    <meshStandardMaterial color="#b07a4f" roughness={0.9} />
+                                </mesh>
+                                <mesh castShadow position={[0.52, 0.58, 0]} scale={[0.8, 0.78, 0.7]}>
+                                    <sphereGeometry args={[0.2, 12, 10]} />
+                                    <meshStandardMaterial color="#a36f46" roughness={0.9} />
+                                </mesh>
+                                <mesh castShadow position={[0.63, 0.82, 0.07]} rotation={[0.2, 0, 0]}>
+                                    <boxGeometry args={[0.03, 0.18, 0.03]} />
+                                    <meshStandardMaterial color="#f3e5ab" />
+                                </mesh>
+                                <mesh castShadow position={[0.63, 0.82, -0.07]} rotation={[0.2, 0, 0]}>
+                                    <boxGeometry args={[0.03, 0.18, 0.03]} />
+                                    <meshStandardMaterial color="#f3e5ab" />
+                                </mesh>
+                            </>
+                        )}
+                        {/* Legs */}
+                        {[[-0.35, 0.15, -0.16], [-0.35, 0.15, 0.16], [0.18, 0.15, -0.16], [0.18, 0.15, 0.16]].map((p, i) => (
+                            <mesh key={i} castShadow position={[p[0], p[1], p[2]]}>
+                                <cylinderGeometry args={[0.04, 0.045, 0.32]} />
+                                <meshStandardMaterial color={isBoar ? "#3f2f24" : "#8b5e3c"} roughness={0.95} />
+                            </mesh>
+                        ))}
+                    </group>
+                );
+            }
             return (
                 <group scale={scale}>
                     <mesh castShadow position={[0, 0.4, 0]}>

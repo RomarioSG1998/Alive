@@ -46,8 +46,23 @@ export const GrassField: React.FC<{ islandRadius: number; worldSize: number }> =
                 continue;
             }
 
-            const y = getTerrainHeight(x, z, worldSize, islandRadius);
-            dummy.position.set(x, y + 0.1, z);
+            // Avoid Cabin Interior
+            const cabinX = worldSize / 2 + 100;
+            const cabinZ = worldSize / 2 - 80;
+            if (Math.abs(x - cabinX) < 6.5 && Math.abs(z - cabinZ) < 5.5) {
+                i--;
+                continue;
+            }
+
+            const sampleR = 0.35;
+            const hCenter = getTerrainHeight(x, z, worldSize, islandRadius);
+            const hX1 = getTerrainHeight(x + sampleR, z, worldSize, islandRadius);
+            const hX2 = getTerrainHeight(x - sampleR, z, worldSize, islandRadius);
+            const hZ1 = getTerrainHeight(x, z + sampleR, worldSize, islandRadius);
+            const hZ2 = getTerrainHeight(x, z - sampleR, worldSize, islandRadius);
+            const baseY = Math.min(hCenter, hX1, hX2, hZ1, hZ2);
+            const mountainSink = THREE.MathUtils.smoothstep(hCenter, 8, 28) * 0.1;
+            dummy.position.set(x, baseY - 0.01 - mountainSink, z);
             dummy.rotation.y = Math.random() * Math.PI;
 
             // Scale variation
@@ -73,7 +88,7 @@ export const GrassField: React.FC<{ islandRadius: number; worldSize: number }> =
             {/* 4 segments for a slightly richer definition than a triangle, but still low poly */}
             <coneGeometry args={[0.06, 0.45, 4]} />
             {/* White base color allows instance colors to show true. High roughness for leafy look. */}
-            <meshStandardMaterial color="#ffffff" roughness={0.9} />
+            <meshStandardMaterial color="#ffffff" roughness={0.82} metalness={0.03} />
         </instancedMesh>
     );
 };

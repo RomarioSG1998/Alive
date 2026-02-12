@@ -295,7 +295,7 @@ export const LakeLife: React.FC<{ worldSize: number }> = ({ worldSize }) => {
 
                 const terrainH = getTerrainHeight(data.x, data.z, worldSize, islandRadius);
                 const jumpY = data.isJumping ? Math.sin(data.jumpProgress * Math.PI) * 0.4 : 0;
-                frog.position.set(data.x, terrainH + 0.1 + jumpY, data.z);
+                frog.position.set(data.x, terrainH + 0.03 + jumpY, data.z);
                 frog.rotation.y = data.rotation;
             });
         }

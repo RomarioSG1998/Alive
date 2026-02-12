@@ -3,6 +3,8 @@ import { Vector2, Entity, ResourceType } from '../../types';
 import { useGameStore } from '../../store/gameStore';
 import { getIslandBoundary } from '../../utils/terrainUtils';
 
+import { LAKES } from '../../utils/constants';
+
 interface MiniMapProps {
   playerPosition: Vector2;
   worldSize: number;
@@ -29,22 +31,19 @@ export const MiniMap: React.FC<MiniMapProps> = ({
   const centerX = worldSize / 2;
   const centerY = worldSize / 2;
 
-  // Transform World Pos -> Map Pos (Relative to Center of Map UI)
+  // Transform World Pos -> Map Pos (RELATIVO AO JOGADOR)
   const worldToMap = (x: number, y: number) => {
-    const relativeX = x - centerX;
-    const relativeY = y - centerY;
+    const relativeX = x - playerPosition.x;
+    const relativeY = y - playerPosition.y;
     return {
       left: (relativeX * scale) + (mapSize / 2),
       top: (relativeY * scale) + (mapSize / 2)
     };
   };
 
-  // Convert Center for Island Circles
-  const mapCenter = worldToMap(centerX, centerY);
-
-  // Generate Irregular Island Shapes (Sand and Forest)
-  const islandPaths = useMemo(() => {
-    const points = 48; // Resolution of the map outline
+  // Generate Irregular Island Shapes (Sand, Forest, Lakes) - RELATIVE TO PLAYER
+  const mapFeatures = useMemo(() => {
+    const points = 96; // Increased resolution for "exactness"
     const beachPoints: string[] = [];
     const forestPoints: string[] = [];
     const beachOffset = 0;
@@ -54,24 +53,36 @@ export const MiniMap: React.FC<MiniMapProps> = ({
       const angle = (i / points) * Math.PI * 2;
       const boundary = getIslandBoundary(angle, islandRadius);
 
-      // Beach line
-      const rBeach = boundary - beachOffset;
-      const xB = (Math.cos(angle) * rBeach * scale) + (mapSize / 2);
-      const yB = (Math.sin(angle) * rBeach * scale) + (mapSize / 2);
-      beachPoints.push(`${xB},${yB}`);
+      // World Coordinates of this point on the coastline
+      const worldX = centerX + Math.cos(angle) * (boundary - beachOffset);
+      const worldY = centerY + Math.sin(angle) * (boundary - beachOffset);
+      const mP = worldToMap(worldX, worldY);
+      beachPoints.push(`${mP.left},${mP.top}`);
 
-      // Forest line
-      const rForest = boundary - forestOffset;
-      const xF = (Math.cos(angle) * rForest * scale) + (mapSize / 2);
-      const yF = (Math.sin(angle) * rForest * scale) + (mapSize / 2);
-      forestPoints.push(`${xF},${yF}`);
+      const wXF = centerX + Math.cos(angle) * (boundary - forestOffset);
+      const wYF = centerY + Math.sin(angle) * (boundary - forestOffset);
+      const mPF = worldToMap(wXF, wYF);
+      forestPoints.push(`${mPF.left},${mPF.top}`);
     }
+
+    // Prepare lakes data
+    const lakeData = LAKES.map(lake => {
+      const lx = centerX + lake.x;
+      const ly = centerY + lake.z;
+      const pos = worldToMap(lx, ly);
+      return {
+        cx: pos.left,
+        cy: pos.top,
+        r: lake.r * scale
+      };
+    });
 
     return {
       beach: beachPoints.join(' '),
-      forest: forestPoints.join(' ')
+      forest: forestPoints.join(' '),
+      lakes: lakeData
     };
-  }, [islandRadius, scale, mapSize]);
+  }, [islandRadius, scale, mapSize, playerPosition.x, playerPosition.y, centerX, centerY]);
 
   // Rotação do indicador do jogador baseada na velocidade
   const rotation = Math.atan2(velocity.x, -velocity.y) * (180 / Math.PI);
@@ -86,7 +97,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
         {/* Camada 1: Oceano (Fundo Profundo) */}
         <div className="absolute inset-0 bg-[#0f172a]" />
 
-        {/* Camada 2 & 3: Ilha Irregular (SVG) */}
+        {/* Camada 2, 3 & 4: Ilha Irregular e Lagos (SVG) */}
         <svg
           width={mapSize}
           height={mapSize}
@@ -95,16 +106,27 @@ export const MiniMap: React.FC<MiniMapProps> = ({
         >
           {/* Beach / Sand Layer */}
           <polygon
-            points={islandPaths.beach}
+            points={mapFeatures.beach}
             fill="#d4b483"
             fillOpacity="0.25"
           />
           {/* Forest / Interior Layer */}
           <polygon
-            points={islandPaths.forest}
+            points={mapFeatures.forest}
             fill="#064e3b"
             fillOpacity="0.45"
           />
+          {/* Lakes Layer */}
+          {mapFeatures.lakes.map((lake, idx) => (
+            <circle
+              key={`lake-${idx}`}
+              cx={lake.cx}
+              cy={lake.cy}
+              r={lake.r}
+              fill="#3b82f6"
+              fillOpacity="0.5"
+            />
+          ))}
         </svg>
 
         {/* Recursos (Árvores e Pedras) */}
@@ -152,16 +174,16 @@ export const MiniMap: React.FC<MiniMapProps> = ({
           <div className="h-full w-[0.5px] bg-white" />
         </div>
 
-        {/* Jogador (Seta de Navegação) */}
+        {/* Jogador (Ponto Vermelho) - SEMPRE NO CENTRO */}
         <div
           className="absolute transition-all duration-100 ease-linear z-10"
           style={{
-            left: worldToMap(playerPosition.x, playerPosition.y).left,
-            top: worldToMap(playerPosition.x, playerPosition.y).top,
-            transform: `translate(-50%, -50%) rotate(${rotation}deg)`
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)'
           }}
         >
-          <div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-bottom-[10px] border-b-white drop-shadow-md" />
+          <div className="w-3 h-3 bg-red-500 rounded-full border-2 border-white shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
         </div>
 
         {/* Marcadores Cardeais */}

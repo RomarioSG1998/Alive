@@ -44,8 +44,23 @@ export const FlowerField: React.FC<{ islandRadius: number; worldSize: number }> 
                 continue;
             }
 
-            const y = getTerrainHeight(x, z, worldSize, islandRadius);
-            dummy.position.set(x, y + 0.1, z);
+            // Avoid Cabin Interior
+            const cabinX = worldSize / 2 + 100;
+            const cabinZ = worldSize / 2 - 80;
+            if (Math.abs(x - cabinX) < 6.5 && Math.abs(z - cabinZ) < 5.5) {
+                i--;
+                continue;
+            }
+
+            const sampleR = 0.55;
+            const hCenter = getTerrainHeight(x, z, worldSize, islandRadius);
+            const hX1 = getTerrainHeight(x + sampleR, z, worldSize, islandRadius);
+            const hX2 = getTerrainHeight(x - sampleR, z, worldSize, islandRadius);
+            const hZ1 = getTerrainHeight(x, z + sampleR, worldSize, islandRadius);
+            const hZ2 = getTerrainHeight(x, z - sampleR, worldSize, islandRadius);
+            const baseY = Math.min(hCenter, hX1, hX2, hZ1, hZ2);
+            const mountainSink = THREE.MathUtils.smoothstep(hCenter, 8, 28) * 0.14;
+            dummy.position.set(x, baseY - 0.03 - mountainSink, z);
             dummy.rotation.y = Math.random() * Math.PI;
             dummy.rotation.x = (Math.random() - 0.5) * 0.2; // Slight tilt
             dummy.rotation.z = (Math.random() - 0.5) * 0.2;
@@ -69,7 +84,7 @@ export const FlowerField: React.FC<{ islandRadius: number; worldSize: number }> 
             {/* Simple Flower Shape: A small sphere sitting on top of a thin cylinder (stem is implicit or simplified) */}
             {/* Using a Dodecahedron for low-poly petal look */}
             <dodecahedronGeometry args={[0.15, 0]} />
-            <meshStandardMaterial roughness={0.5} />
+            <meshStandardMaterial roughness={0.42} metalness={0.02} />
         </instancedMesh>
     );
 };
