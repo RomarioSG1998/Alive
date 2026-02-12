@@ -178,8 +178,26 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Robust check: Use both e.code (physical) and e.key (value)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code) ||
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+
       audioService.init();
-      keysPressed.current[e.code] = true;
+      // Register both for maximum compatibility
+      const code = e.code;
+      const key = e.key;
+
+      keysPressed.current[code] = true;
+      keysPressed.current[key] = true;
+
+      // ALIASING FOR ROBUSTNESS
+      if (code === 'ArrowUp' || key === 'ArrowUp') keysPressed.current['KeyW'] = true;
+      if (code === 'ArrowDown' || key === 'ArrowDown') keysPressed.current['KeyS'] = true;
+      if (code === 'ArrowLeft' || key === 'ArrowLeft') keysPressed.current['KeyA'] = true;
+      if (code === 'ArrowRight' || key === 'ArrowRight') keysPressed.current['KeyD'] = true;
+
       if (e.code === 'KeyV') {
         setCameraMode(cameraMode === '3P' ? '1P' : cameraMode === '1P' ? '2P' : '3P');
       }
@@ -187,7 +205,19 @@ export default function App() {
         handleAttack();
       }
     };
-    const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.code] = false; };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const code = e.code;
+      const key = e.key;
+
+      keysPressed.current[code] = false;
+      keysPressed.current[key] = false;
+
+      // CLEAR ALIASES
+      if (code === 'ArrowUp' || key === 'ArrowUp') keysPressed.current['KeyW'] = false;
+      if (code === 'ArrowDown' || key === 'ArrowDown') keysPressed.current['KeyS'] = false;
+      if (code === 'ArrowLeft' || key === 'ArrowLeft') keysPressed.current['KeyA'] = false;
+      if (code === 'ArrowRight' || key === 'ArrowRight') keysPressed.current['KeyD'] = false;
+    };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);

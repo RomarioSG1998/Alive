@@ -58,33 +58,40 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const distFromCenter = Math.hypot(pPos.x - worldSize / 2, pPos.z - worldSize / 2);
         const inWater = distFromCenter > islandRadius;
 
-        // Speed Tuning: Reduced for realistic human scale
-        // Walk: 85 units/sec (was 160)
-        // Run: 160 units/sec (was 300)
-        const maxSpeed = isRunning ? (inWater ? 100 : 160) : (inWater ? 60 : 85);
+        // Speed Tuning: Reduced for realistic human scale (1 unit ~ 1 meter)
+        // Walk: 6 units/sec
+        // Run: 12 units/sec
+        const maxSpeed = isRunning ? (inWater ? 8 : 12) : (inWater ? 3 : 6);
 
         // Physics: Slower acceleration for weight, higher friction for stops
-        const accel = (isRunning ? 600 : 400) * (inWater ? 0.6 : 1.0);
+        const accel = (isRunning ? 40 : 25) * (inWater ? 0.6 : 1.0);
         const friction = inWater ? 10 : 7.5;
 
         // Camera-Relative Movement Logic
         const input = new THREE.Vector3(0, 0, 0);
 
-        // Get camera forward direction (projected to ground plane)
-        const camDir = new THREE.Vector3();
-        camera.getWorldDirection(camDir);
-        camDir.y = 0;
-        camDir.normalize();
+        // Movement Vectors
+        const moveForward = new THREE.Vector3();
+        const moveRight = new THREE.Vector3();
 
-        // Get camera right direction
-        const camRight = new THREE.Vector3();
-        camRight.crossVectors(camDir, new THREE.Vector3(0, 1, 0));
+        if (mode === '3P') {
+            // In 3P Fixed-Follow mode, use absolute world directions to prevent 
+            // camera-lag feedback loops (which cause curving paths).
+            moveForward.set(0, 0, -1); // North
+            moveRight.set(1, 0, 0);    // East
+        } else {
+            // In 1P or other modes, use Camera direction
+            camera.getWorldDirection(moveForward);
+            moveForward.y = 0;
+            moveForward.normalize();
+            moveRight.crossVectors(moveForward, new THREE.Vector3(0, 1, 0));
+        }
 
-        // Apply inputs relative to camera
-        if (keys.current['KeyW'] || keys.current['ArrowUp']) input.add(camDir);
-        if (keys.current['KeyS'] || keys.current['ArrowDown']) input.sub(camDir);
-        if (keys.current['KeyA'] || keys.current['ArrowLeft']) input.sub(camRight);
-        if (keys.current['KeyD'] || keys.current['ArrowRight']) input.add(camRight);
+        // Apply inputs
+        if (keys.current['KeyW'] || keys.current['ArrowUp']) input.add(moveForward);
+        if (keys.current['KeyS'] || keys.current['ArrowDown']) input.sub(moveForward);
+        if (keys.current['KeyA'] || keys.current['ArrowLeft']) input.sub(moveRight);
+        if (keys.current['KeyD'] || keys.current['ArrowRight']) input.add(moveRight);
 
         if (input.lengthSq() > 0) {
             input.normalize().multiplyScalar(accel * d);
@@ -95,12 +102,12 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
         internalVel.current.multiplyScalar(1 - friction * d);
         if (internalVel.current.length() > maxSpeed) internalVel.current.setLength(maxSpeed);
-        if (internalVel.current.length() < 1.0) internalVel.current.set(0, 0);
+        if (internalVel.current.length() < 0.01) internalVel.current.set(0, 0);
 
         const nextX = pPos.x + internalVel.current.x * d;
         const nextZ = pPos.z + internalVel.current.y * d;
-        const playerRadius = 1.5; // Reduced from 8 to match visual size (0.4 width)
-        const solidTypes = [ResourceType.WOOD, ResourceType.STONE, ResourceType.STRUCTURE, ResourceType.DECOR_TREE];
+        const playerRadius = 0.4; // Reduced to match visual size (approx 0.4 width)
+        const solidTypes = [ResourceType.WOOD, ResourceType.STONE, ResourceType.STRUCTURE];
 
         if (entities && Array.isArray(entities)) {
             for (const ent of entities) {
@@ -110,10 +117,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
                 const dist = Math.sqrt(dx * dx + dz * dz);
 
                 // Dynamic radius based on type to match visuals
-                let typeRadius = 2.0;
-                if (ent.type === ResourceType.WOOD) typeRadius = 1.5; // Tree trunk is thin
-                else if (ent.type === ResourceType.STONE) typeRadius = 3.0; // Rocks are wider
-                else if (ent.type === ResourceType.STRUCTURE) typeRadius = 5.0;
+                let typeRadius = 1.0;
+                if (ent.type === ResourceType.WOOD) typeRadius = 0.4; // Tree trunk is thin (approx 0.35)
+                else if (ent.type === ResourceType.STONE) typeRadius = 0.8; // Rocks are wider (approx 0.7)
+                else if (ent.type === ResourceType.STRUCTURE) typeRadius = 2.0;
 
                 const entRadius = typeRadius * (ent.size || 1);
                 const minDist = playerRadius + entRadius;
@@ -154,11 +161,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
         const speed = internalVel.current.length();
 
-        if (speed > 5) {
+        if (speed > 0.1) {
             // Animation Sync: 
-            // 0.08 multiplier (was 0.055) = faster steps for the same speed
-            // This reduces the "moonwalking" slide effect by matching foot speed to ground speed better.
-            walkTime.current += d * speed * (inWater ? 0.06 : 0.08);
+            // 0.8 multiplier = matches foot speed to ground speed for ~6 units/sec
+            walkTime.current += d * speed * (inWater ? 0.6 : 0.8);
             const currentPhaseIndex = Math.floor(walkTime.current / Math.PI);
             if (currentPhaseIndex !== lastFootIndex.current) {
                 lastFootIndex.current = currentPhaseIndex;
@@ -188,11 +194,12 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
             const bobY = Math.sin(walkTime.current) * (speed * 0.0006);
 
             // Push camera forward slightly to align with eyes and peek past body
-            const forwardOffset = new THREE.Vector3(0, 0, -0.4).applyEuler(playerRef.current.rotation);
+            const forwardOffset = new THREE.Vector3(0, 0, 0.4).applyEuler(playerRef.current.rotation);
 
             camTarget.set(pPos.x + forwardOffset.x, 1.76 + bobY, pPos.z + forwardOffset.z);
 
-            const viewDir = new THREE.Vector3(0, 0, -1).applyEuler(playerRef.current.rotation);
+            // View direction matches Avatar's forward face (Positive Z in local space)
+            const viewDir = new THREE.Vector3(0, 0, 1).applyEuler(playerRef.current.rotation);
             lookTarget.copy(camTarget).add(viewDir.multiplyScalar(10));
 
             // Snappier lerp for 1P so it feels responsive

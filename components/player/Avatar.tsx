@@ -34,10 +34,10 @@ export const Avatar: React.FC<AvatarProps> = ({ velocity, isWet, isFirstPerson, 
         const time = state.clock.elapsedTime;
 
         // Animation blending and scales
-        const isMoving = speed > 10;
+        const isMoving = speed > 0.5;
         // Animation Tuning:
-        // Swing: Reduced multiplier (0.01 -> 0.007) to settle "crazy legs"
-        const swing = Math.min(1.0, speed * 0.007);
+        // Swing: Adjusted for lower speeds (multiplier 0.007 -> 0.15)
+        const swing = Math.min(1.0, speed * 0.15);
 
         const lCycle = Math.sin(phase);
         const rCycle = Math.sin(phase + Math.PI);
