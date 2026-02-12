@@ -1,25 +1,25 @@
 
 import React from 'react';
-import { Vector2, Entity, ResourceType } from '../types';
+import { Vector2 } from '../../types';
+import { useGameStore } from '../../store/gameStore';
 
 interface MiniMapProps {
   playerPosition: Vector2;
-  structures: Entity[];
   worldSize: number;
   islandRadius: number;
   velocity: { x: number; y: number };
 }
 
-export const MiniMap: React.FC<MiniMapProps> = ({ 
-  playerPosition, 
-  structures, 
-  worldSize, 
+export const MiniMap: React.FC<MiniMapProps> = ({
+  playerPosition,
+  worldSize,
   islandRadius,
-  velocity 
+  velocity
 }) => {
-  const mapSize = 160; // Tamanho em pixels no HUD
+  const { structures } = useGameStore();
+  const mapSize = 160;
   const scale = mapSize / worldSize;
-  
+
   const centerX = worldSize / 2;
   const centerY = worldSize / 2;
 
@@ -29,7 +29,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
   return (
     <div className="relative group pointer-events-auto">
       {/* Moldura do Mapa */}
-      <div 
+      <div
         className="relative overflow-hidden rounded-full border-2 border-slate-700/50 bg-slate-900/40 backdrop-blur-xl shadow-2xl"
         style={{ width: mapSize, height: mapSize }}
       >
@@ -37,7 +37,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
         <div className="absolute inset-0 bg-sky-900/20" />
 
         {/* Ilha (Representação Visual) */}
-        <div 
+        <div
           className="absolute rounded-full bg-emerald-950/40 border border-emerald-500/10"
           style={{
             width: islandRadius * 2 * scale,
@@ -66,7 +66,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
         ))}
 
         {/* Jogador (Indicador) */}
-        <div 
+        <div
           className="absolute transition-all duration-100 ease-linear"
           style={{
             left: playerPosition.x * scale,
@@ -87,7 +87,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
           <span className="mr-0.5">E</span>
         </div>
       </div>
-      
+
       {/* Label de Localização */}
       <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] mono font-bold text-slate-400 uppercase tracking-widest bg-slate-900/60 px-2 py-0.5 rounded-full border border-slate-700/50">
         LOC: {Math.round(playerPosition.x)} : {Math.round(playerPosition.y)}

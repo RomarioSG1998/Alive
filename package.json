@@ -9,16 +9,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^1.41.0",
+    "@react-three/drei": "9.117.3",
+    "@react-three/fiber": "9.0.0-rc.0",
+    "@react-three/postprocessing": "2.16.2",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "three": "0.170.0",
-    "@react-three/fiber": "9.0.0-rc.0",
-    "@react-three/drei": "9.117.3",
-    "@react-three/postprocessing": "2.16.2",
-    "@google/genai": "^1.41.0"
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.182.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
