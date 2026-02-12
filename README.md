@@ -85,6 +85,11 @@ npm run dev
 
 ## Deploy (GitHub Pages)
 
+Links públicos para teste:
+
+- Jogo: `https://romariosg1998.github.io/Alive/`
+- Página da mesa/notebook: `https://romariosg1998.github.io/Alive/desk-browser.html`
+
 Para publicar em GitHub Pages com os scripts atuais:
 
 ```bash
