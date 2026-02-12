@@ -11,8 +11,8 @@ import { MiniMap } from './components/MiniMap';
 const WORLD_SIZE = 3000;
 const ISLAND_RADIUS = 350;
 const CENTER = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
-const RESOURCE_LIMIT = 40;
-const DECOR_LIMIT = 150;
+const RESOURCE_LIMIT = 150;
+const DECOR_LIMIT = 400;
 const COLLECTION_RADIUS = 28;
 
 export type CameraMode = '1P' | '2P' | '3P';
@@ -36,26 +36,18 @@ export default function App() {
   const [playerVelocity, setPlayerVelocity] = useState<THREE.Vector2>(new THREE.Vector2(0, 0));
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>('3P');
+  const [lastAttack, setLastAttack] = useState(0);
+  const [lastHit, setLastHit] = useState<{ id: string; time: number } | null>(null);
 
   const keysPressed = useRef<{ [key: string]: boolean }>({});
   const lastLogicUpdate = useRef(Date.now());
+  const playerPosRef = useRef<Vector2>(CENTER);
+
+
+
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      audioService.init(); // Init audio on first interaction
-      keysPressed.current[e.code] = true;
-      if (e.code === 'KeyV') {
-        setCameraMode(prev => prev === '3P' ? '1P' : prev === '1P' ? '2P' : '3P');
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.code] = false; };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
     generateAvatar().then(url => setAvatarUrl(url));
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
   }, []);
 
   const createEntity = useCallback((isResource: boolean): Entity => {
@@ -70,6 +62,7 @@ export default function App() {
 
     const angle = Math.random() * Math.PI * 2;
     const radius = 20 + Math.random() * (ISLAND_RADIUS - 60);
+    const health = isResource ? 3 : 1; // Resources take 3 hits
     return {
       id: Math.random().toString(36).substr(2, 9),
       type,
@@ -80,7 +73,9 @@ export default function App() {
       size: 0.8 + Math.random() * 1.5,
       rotation: Math.random() * Math.PI * 2,
       variant: Math.floor(Math.random() * 3),
-      color: "#000"
+      color: "#000",
+      health,
+      maxHealth: health
     };
   }, []);
 
@@ -96,6 +91,8 @@ export default function App() {
     setPlayerVelocity(vel);
 
     const now = Date.now();
+    playerPosRef.current = pos; // Update ref for stable access
+
     if (now - lastLogicUpdate.current > 100) {
       lastLogicUpdate.current = now;
 
@@ -104,58 +101,101 @@ export default function App() {
 
         const dist = Math.hypot(pos.x - CENTER.x, pos.y - CENTER.y);
         const inWater = dist > ISLAND_RADIUS;
+        const velLen = vel ? (typeof vel.length === 'function' ? vel.length() : (vel as any).length || 0) : 0;
+        const isRunning = velLen > 15; // Adjusted threshold
 
-        let speed = 0;
-        try {
-          if (vel && typeof vel.length === 'function') {
-            speed = vel.length();
-          } else if (vel && typeof (vel as any).length === 'number') {
-            speed = (vel as any).length;
-          }
-        } catch (e) {
-          speed = 0;
-        }
-
-        const isRunning = speed > 150;
         const hungerDrain = isRunning ? 0.1 : 0.035;
-
         let newHunger = Math.max(0, (prev.hunger ?? 100) - hungerDrain);
         let newHealth = (prev.health ?? 100);
 
         if (newHunger <= 0) newHealth -= 0.25;
         if (inWater) newHealth -= 0.35;
 
-        let collected: ResourceType | null = null;
-        if (prev.entities && Array.isArray(prev.entities)) {
-          const updatedEntities = prev.entities.filter(ent => {
-            if (!ent || !ent.pos) return false;
-            const isRes = [ResourceType.WOOD, ResourceType.STONE, ResourceType.FOOD].includes(ent.type as ResourceType);
-            if (!isRes) return true;
-            const d = Math.hypot(ent.pos.x - pos.x, ent.pos.y - pos.y);
-            if (d < COLLECTION_RADIUS) { collected = ent.type as ResourceType; return false; }
-            return true;
-          });
+        // Auto-collection REMOVED
 
-          if (collected) {
-            const inv = (prev.inventory || []).map(i => i.type === collected ? { ...i, count: (i.count || 0) + 1 } : i);
-            const hungerBonus = collected === ResourceType.FOOD ? 25 : 0;
-            return {
-              ...prev,
-              inventory: inv,
-              entities: [...updatedEntities, createEntity(true)],
-              hunger: Math.min(100, newHunger + hungerBonus),
-              health: newHealth,
-              log: [`+ ${collected}`, ...(prev.log || [])].slice(0, 10)
-            };
-          }
-
-          return { ...prev, hunger: newHunger, health: newHealth, entities: updatedEntities };
-        }
-
-        return { ...prev, hunger: newHunger, health: newHealth };
+        return {
+          ...prev,
+          hunger: Math.min(100, newHunger),
+          health: newHealth
+        };
       });
     }
-  }, [createEntity]);
+  }, []);
+
+  // Manual Attack / Collection Logic
+  const handleAttack = useCallback(() => {
+    const now = Date.now();
+    setLastAttack(now);
+    setGameState(prev => {
+      if (!prev) return INITIAL_STATE;
+      const pPos = playerPosRef.current; // Use Ref for latest position
+
+      const attackRange = 18;
+      let closest: Entity | null = null;
+      let minDist = attackRange;
+
+      // Find closest resource
+      const updatedEntities = prev.entities.map(ent => {
+        if (!ent || !ent.pos) return ent;
+        const isRes = [ResourceType.WOOD, ResourceType.STONE, ResourceType.FOOD].includes(ent.type as ResourceType);
+        if (!isRes) return ent;
+
+        const d = Math.hypot(ent.pos.x - pPos.x, ent.pos.y - pPos.y);
+        if (d < minDist) {
+          minDist = d;
+          closest = ent;
+        }
+        return ent;
+      });
+
+      if (closest && minDist < attackRange) {
+        const target = closest as Entity;
+        setLastHit({ id: target.id, time: now }); // Trigger shake
+
+        const newHealth = (target.health || 0) - 1;
+
+        let newLog = prev.log;
+        let newInventory = prev.inventory;
+        let finalEntities = updatedEntities;
+
+        if (newHealth <= 0) {
+          // Destroyed
+          newLog = [`+ 1 ${target.type}`, ...prev.log].slice(0, 10);
+          newInventory = prev.inventory.map(i => i.type === target.type ? { ...i, count: i.count + 1 } : i);
+          finalEntities = updatedEntities.filter(e => e.id !== target.id);
+        } else {
+          // Damaged
+          newLog = [`Hit! HP: ${newHealth}`, ...prev.log].slice(0, 10);
+          finalEntities = updatedEntities.map(e => e.id === target.id ? { ...e, health: newHealth } : e);
+        }
+
+        return { ...prev, entities: finalEntities, inventory: newInventory, log: newLog };
+      }
+      return prev;
+    });
+  }, []); // Stable callback since we use ref
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      audioService.init();
+      keysPressed.current[e.code] = true;
+      if (e.code === 'KeyV') {
+        setCameraMode(prev => prev === '3P' ? '1P' : prev === '1P' ? '2P' : '3P');
+      }
+      if (e.code === 'Space') {
+        handleAttack();
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.code] = false; };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [handleAttack]);
 
   const onFootstep = useCallback((isWet: boolean) => {
     audioService.playFootstep(isWet);
@@ -192,6 +232,8 @@ export default function App() {
         worldSize={WORLD_SIZE}
         islandRadius={ISLAND_RADIUS}
         velocity={playerVelocity}
+        lastAttack={lastAttack}
+        lastHit={lastHit}
         onUpdatePosition={handleUpdatePosition}
         onFootstep={onFootstep}
         keysPressed={keysPressed}
@@ -221,6 +263,7 @@ export default function App() {
               worldSize={WORLD_SIZE}
               islandRadius={ISLAND_RADIUS}
               velocity={playerVelocity}
+              lastAttack={lastAttack}
             />
           </div>
         </div>

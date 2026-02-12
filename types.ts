@@ -23,6 +23,7 @@ export interface Entity {
   rotation?: number;
   variant?: number;
   health?: number;
+  maxHealth?: number;
 }
 
 export interface InventoryItem {

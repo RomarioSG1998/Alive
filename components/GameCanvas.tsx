@@ -8,6 +8,29 @@ import { Vector2, Entity, ResourceType } from '../types';
 import { CameraMode } from '../App';
 import { FootstepParticles } from './VFX';
 
+// ... (Define Axe Component)
+const Axe: React.FC = () => (
+  <group rotation={[1.5, 0, 0]} position={[0, 0.35, 0.05]}>
+    {/* Handle */}
+    <mesh castShadow position={[0, -0.2, 0]}>
+      <cylinderGeometry args={[0.02, 0.025, 0.6, 8]} />
+      <meshStandardMaterial color="#5D4037" roughness={0.9} />
+    </mesh>
+    {/* Head */}
+    <group position={[0, 0, 0]}>
+      <mesh castShadow>
+        <boxGeometry args={[0.15, 0.1, 0.03]} /> {/* Wedge block */}
+        <meshStandardMaterial color="#374151" roughness={0.4} metalness={0.8} />
+      </mesh>
+      <mesh castShadow position={[0.08, 0, 0]} rotation={[0, 0, -0.2]}>
+        <boxGeometry args={[0.06, 0.12, 0.01]} /> {/* Blade edge */}
+        <meshStandardMaterial color="#9ca3af" roughness={0.3} metalness={0.9} />
+      </mesh>
+    </group>
+  </group>
+);
+
+
 interface GameWorldProps {
   playerPosition: Vector2;
   entities: Entity[];
@@ -18,6 +41,8 @@ interface GameWorldProps {
   onFootstep?: (isWet: boolean) => void;
   keysPressed: React.MutableRefObject<{ [key: string]: boolean }>;
   cameraMode: CameraMode;
+  lastAttack?: number; // Added
+  lastHit?: { id: string; time: number } | null;
 }
 
 const lerpAngle = (start: number, end: number, t: number) => {
@@ -34,7 +59,8 @@ const MasterController: React.FC<{
   keys: React.MutableRefObject<{ [key: string]: boolean }>;
   mode: CameraMode;
   initialPos: Vector2;
-}> = ({ worldSize, islandRadius, entities, onUpdate, onFootstep, keys, mode, initialPos }) => {
+  lastAttack?: number; // Added
+}> = ({ worldSize, islandRadius, entities, onUpdate, onFootstep, keys, mode, initialPos, lastAttack }) => {
   const { camera } = useThree();
   const playerRef = useRef<THREE.Group>(null);
   const internalVel = useRef(new THREE.Vector2(0, 0));
@@ -208,6 +234,7 @@ const MasterController: React.FC<{
           isWet={renderDistFromCenter > islandRadius}
           hideHead={mode === '1P'}
           walkTime={walkTime}
+          lastAttack={lastAttack} // Pass to body
         />
       </group>
 
@@ -225,8 +252,9 @@ const RealisticHumanoidBody: React.FC<{
   velocity: THREE.Vector2 | { length: () => number } | null | undefined,
   isWet: boolean,
   hideHead: boolean,
-  walkTime: React.MutableRefObject<number>
-}> = ({ velocity, isWet, hideHead, walkTime }) => {
+  walkTime: React.MutableRefObject<number>,
+  lastAttack?: number // Added
+}> = ({ velocity, isWet, hideHead, walkTime, lastAttack }) => {
   const hips = useRef<THREE.Group>(null);
   const chest = useRef<THREE.Group>(null);
   const headGroup = useRef<THREE.Group>(null);
@@ -250,71 +278,118 @@ const RealisticHumanoidBody: React.FC<{
     // Animation blending and scales
     const isMoving = speed > 10;
     // Animation Tuning:
-    // Swing: Increased multiplier (0.0055 -> 0.01) so animation is visible at lower speeds.
-    const swing = Math.min(1.0, speed * 0.01);
+    // Swing: Reduced multiplier (0.01 -> 0.007) to settle "crazy legs"
+    const swing = Math.min(1.0, speed * 0.007);
 
     const lCycle = Math.sin(phase);
     const rCycle = Math.sin(phase + Math.PI);
 
-    // 1. Legs: More organic step-through
+    // Smoothing helper
+    const lerp = THREE.MathUtils.lerp;
+    const alpha = 0.2; // Higher = Snappier, Lower = Smoother
+
+    // 1. Legs: Weighted, interpolated movement
     if (lThigh.current && lShin.current) {
-      lThigh.current.rotation.x = lCycle * swing;
-      // Shin bends more on backswing
-      lShin.current.rotation.x = lCycle < 0 ? -Math.abs(lCycle) * 1.8 * swing : -0.1;
+      const tRot = lCycle * swing;
+      lThigh.current.rotation.x = lerp(lThigh.current.rotation.x, tRot, alpha);
+
+      const sRot = lCycle < 0 ? -Math.abs(lCycle) * 1.5 * swing : -0.1;
+      lShin.current.rotation.x = lerp(lShin.current.rotation.x, sRot, alpha);
     }
     if (rThigh.current && rShin.current) {
-      rThigh.current.rotation.x = rCycle * swing;
-      rShin.current.rotation.x = rCycle < 0 ? -Math.abs(rCycle) * 1.8 * swing : -0.1;
+      const tRot = rCycle * swing;
+      rThigh.current.rotation.x = lerp(rThigh.current.rotation.x, tRot, alpha);
+
+      const sRot = rCycle < 0 ? -Math.abs(rCycle) * 1.5 * swing : -0.1;
+      rShin.current.rotation.x = lerp(rShin.current.rotation.x, sRot, alpha);
     }
 
-    // 2. Hips & Core (The foundation of natural movement)
+    // 2. Hips & Core
     if (hips.current && chest.current) {
-      // Idle Breathing
       const breath = Math.sin(time * 0.8) * 0.015;
       const breathShoulders = Math.sin(time * 1.2) * 0.01;
 
-      // Base Y Position (Bobbing when moving, breathing when idle)
       const bob = Math.abs(Math.cos(phase)) * swing * 0.16;
-      hips.current.position.y = 0.95 + (isMoving ? bob : breath);
+      hips.current.position.y = lerp(hips.current.position.y, 0.95 + (isMoving ? bob : breath), alpha);
 
-      // Weight Shift (Lateral sway)
-      const lateralSway = Math.sin(phase) * swing * 0.12;
-      hips.current.position.x = isMoving ? lateralSway : 0;
+      const sway = Math.sin(phase) * swing * 0.12;
+      hips.current.position.x = lerp(hips.current.position.x, isMoving ? sway : 0, alpha);
 
-      // Hip Roll & Twist
-      hips.current.rotation.z = isMoving ? Math.sin(phase) * swing * 0.15 : 0;
-      hips.current.rotation.y = isMoving ? Math.sin(phase + Math.PI / 2) * swing * 0.18 : 0;
+      hips.current.rotation.z = lerp(hips.current.rotation.z, isMoving ? Math.sin(phase) * swing * 0.15 : 0, alpha);
+      hips.current.rotation.y = lerp(hips.current.rotation.y, isMoving ? Math.sin(phase + Math.PI / 2) * swing * 0.18 : 0, alpha);
 
-      // 3. Chest: Counter-rotation and Leaning
-      // Shoulders move opposite to hips for balance
-      chest.current.rotation.y = isMoving ? -hips.current.rotation.y * 1.3 : 0;
+      // 3. Chest
+      chest.current.rotation.y = lerp(chest.current.rotation.y, isMoving ? -hips.current.rotation.y * 1.3 : 0, alpha);
 
-      // Pitch/Lean forward when running
       const forwardLean = isMoving ? (speed / 350) * 0.5 : 0;
-      chest.current.rotation.x = forwardLean + (isMoving ? Math.sin(time * 2) * 0.02 : breathShoulders);
+      const targetLean = forwardLean + (isMoving ? Math.sin(time * 2) * 0.02 : breathShoulders);
+      chest.current.rotation.x = lerp(chest.current.rotation.x, targetLean, alpha);
 
-      // Dynamic Bank/Lean (Centrifugal)
       const banking = isMoving ? (hips.current.rotation.z * 0.5) : 0;
-      chest.current.rotation.z = -banking;
+      chest.current.rotation.z = lerp(chest.current.rotation.z, -banking, alpha);
     }
 
-    // 4. Arms: Fluid swing with shoulder movement
+    // ATTACK ANIMATION OVERRIDE
+    const timeSinceAttack = Date.now() - (lastAttack || 0);
+    const isAttacking = timeSinceAttack < 400; // 400ms attack animation
+
+    // 4. Arms: Fluid swing
     if (lUpperArm.current && lForearm.current) {
-      lUpperArm.current.rotation.x = rCycle * swing * 1.5;
-      lUpperArm.current.rotation.z = isMoving ? -0.15 - (swing * 0.1) : -0.1;
-      lForearm.current.rotation.x = Math.max(0.35, Math.abs(rCycle) * swing * 1.2);
+      lUpperArm.current.rotation.x = lerp(lUpperArm.current.rotation.x, rCycle * swing * 1.5, alpha);
+      lUpperArm.current.rotation.z = lerp(lUpperArm.current.rotation.z, isMoving ? -0.15 - (swing * 0.1) : -0.1, alpha);
+      lForearm.current.rotation.x = lerp(lForearm.current.rotation.x, Math.max(0.35, Math.abs(rCycle) * swing * 1.2), alpha);
     }
+
     if (rUpperArm.current && rForearm.current) {
-      rUpperArm.current.rotation.x = lCycle * swing * 1.5;
-      rUpperArm.current.rotation.z = isMoving ? 0.15 + (swing * 0.1) : 0.1;
-      rForearm.current.rotation.x = Math.max(0.35, Math.abs(lCycle) * swing * 1.2);
+      if (isAttacking) {
+        // Chopping motion
+        // t goes from 0 to 1 over 400ms
+        const t = timeSinceAttack / 400;
+        // Raise, Swing, Recover
+        // Simple curve: 
+        // 0-0.3: Raise back
+        // 0.3-0.6: Slam forward
+        // 0.6-1.0: Recover
+
+        let tx = 0, tz = 0;
+        let fx = 0;
+
+        if (t < 0.3) {
+          // BACK
+          const p = t / 0.3;
+          tx = -Math.PI / 2 - (p * 0.5); // Raise up
+          fx = 1.5; // Bend elbow
+        } else if (t < 0.6) {
+          // SWING
+          const p = (t - 0.3) / 0.3;
+          // Linear slam? easing?
+          tx = (-Math.PI / 2 - 0.5) + (p * 2.5); // Slam down
+          fx = 1.5 - (p * 1.2); // Straighten arm
+        } else {
+          // RECOVER
+          const p = (t - 0.6) / 0.4;
+          tx = (-Math.PI / 2 - 0.5 + 2.5) - (p * 2.0); // Recover to neutral-ish
+          fx = 0.3 + (p * 0.1);
+        }
+
+        // Fast lerp for snap
+        const fastAlpha = 0.4;
+        rUpperArm.current.rotation.x = lerp(rUpperArm.current.rotation.x, tx, fastAlpha);
+        rUpperArm.current.rotation.z = lerp(rUpperArm.current.rotation.z, 0.4, fastAlpha); // Angle out slightly
+        rForearm.current.rotation.x = lerp(rForearm.current.rotation.x, fx, fastAlpha);
+
+      } else {
+        // Normal Walk/Idle
+        rUpperArm.current.rotation.x = lerp(rUpperArm.current.rotation.x, lCycle * swing * 1.5, alpha);
+        rUpperArm.current.rotation.z = lerp(rUpperArm.current.rotation.z, isMoving ? 0.15 + (swing * 0.1) : 0.1, alpha);
+        rForearm.current.rotation.x = lerp(rForearm.current.rotation.x, Math.max(0.35, Math.abs(lCycle) * swing * 1.2), alpha);
+      }
     }
 
     // 5. Head: Stabilization
     if (headGroup.current) {
-      // Head stays relatively level while body bobs
       const headCounterBob = isMoving ? -Math.sin(phase * 2) * swing * 0.12 : 0;
-      headGroup.current.rotation.x = headCounterBob + Math.sin(time * 0.6) * 0.03;
+      headGroup.current.rotation.x = lerp(headGroup.current.rotation.x, headCounterBob + Math.sin(time * 0.6) * 0.03, alpha);
     }
   });
 
@@ -348,6 +423,12 @@ const RealisticHumanoidBody: React.FC<{
             <meshStandardMaterial color={gearColor} roughness={0.6} />
           </mesh>
         </group>
+
+        {/* Stomach / Spine Connection (Fix Gap) */}
+        <mesh position={[0, 0.18, 0]} castShadow>
+          <boxGeometry args={[0.34, 0.25, 0.18]} />
+          <meshStandardMaterial color={clothColor} roughness={0.9} />
+        </mesh>
 
         <group ref={lThigh} position={[-0.18, -0.05, 0]}>
           <mesh castShadow position={[0, -0.22, 0]}>
@@ -473,6 +554,9 @@ const RealisticHumanoidBody: React.FC<{
                 <sphereGeometry args={[0.06, 6, 6]} />
                 <meshStandardMaterial color={skinColor} />
               </mesh>
+
+              {/* AXE ATTACHMENT */}
+              <Axe />
             </group>
           </group>
         </group>
@@ -487,14 +571,102 @@ const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity }) => {
   const scale = entity.size || 1;
   const rot = entity.rotation || 0;
 
+  // Tree Variation
+  const isPine = entity.type === ResourceType.WOOD;
+  const foliageColor = isPine ? (Math.random() > 0.5 ? "#166534" : "#15803d") : "#166534";
+
   switch (entity.type) {
-    case ResourceType.WOOD:
-      return (
-        <group position={pos} rotation={[0, rot, 0]} scale={scale}>
-          <mesh castShadow position={[0, 1, 0]}><cylinderGeometry args={[0.2, 0.3, 2, 8]} /><meshStandardMaterial color="#5d4037" /></mesh>
-          <mesh castShadow position={[0, 2.5, 0]}><coneGeometry args={[1.5, 3.5, 8]} /><meshStandardMaterial color="#166534" /></mesh>
-        </group>
-      );
+    case ResourceType.WOOD: {
+      // Deterministic tree type based on position
+      const pseudoRandom = Math.abs(Math.sin(entity.pos.x * 12.9898 + entity.pos.y * 78.233) * 43758.5453) % 1;
+
+      // 50% Pine, 25% Oak, 25% Birch
+      if (pseudoRandom < 0.5) {
+        // PINE TREE (Existing)
+        return (
+          <group position={pos} rotation={[0, rot, 0]} scale={scale}>
+            {/* Trunk */}
+            <mesh castShadow position={[0, 0.8, 0]}>
+              <cylinderGeometry args={[0.2, 0.35, 1.6, 8]} />
+              <meshStandardMaterial color="#3e2723" roughness={1} side={THREE.DoubleSide} />
+            </mesh>
+            {/* Foliage Layers (Pine Style) */}
+            <mesh castShadow position={[0, 1.8, 0]}>
+              <coneGeometry args={[1.8, 1.5, 8]} />
+              <meshStandardMaterial color={foliageColor} roughness={0.8} side={THREE.DoubleSide} />
+            </mesh>
+            <mesh castShadow position={[0, 2.8, 0]}>
+              <coneGeometry args={[1.4, 1.5, 8]} />
+              <meshStandardMaterial color={foliageColor} roughness={0.8} side={THREE.DoubleSide} />
+            </mesh>
+            <mesh castShadow position={[0, 3.8, 0]}>
+              <coneGeometry args={[1.0, 1.2, 8]} />
+              <meshStandardMaterial color={foliageColor} roughness={0.8} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
+        );
+      } else if (pseudoRandom < 0.75) {
+        // OAK TREE (New) - Round foliage
+        const oakFoliageColor = Math.random() > 0.5 ? "#15803d" : "#166534"; // Darker green
+        return (
+          <group position={pos} rotation={[0, rot, 0]} scale={scale}>
+            {/* Trunk */}
+            <mesh castShadow position={[0, 0.7, 0]}>
+              <cylinderGeometry args={[0.25, 0.35, 1.4, 8]} />
+              <meshStandardMaterial color="#5D4037" roughness={1} side={THREE.DoubleSide} /> {/* Darker brown */}
+            </mesh>
+            {/* Main Foliage Clump */}
+            <mesh castShadow position={[0, 2.2, 0]}>
+              <dodecahedronGeometry args={[1.5, 0]} />
+              <meshStandardMaterial color={oakFoliageColor} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+            {/* Side clumps for volume */}
+            <mesh castShadow position={[0.8, 1.8, 0]}>
+              <dodecahedronGeometry args={[1.0, 0]} />
+              <meshStandardMaterial color={oakFoliageColor} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+            <mesh castShadow position={[-0.7, 1.9, 0.5]}>
+              <dodecahedronGeometry args={[0.9, 0]} />
+              <meshStandardMaterial color={oakFoliageColor} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
+        );
+      } else {
+        // BIRCH TREE (New) - Tall, thin, white trunk
+        return (
+          <group position={pos} rotation={[0, rot, 0]} scale={scale}>
+            {/* Trunk - White with spots */}
+            <mesh castShadow position={[0, 1.5, 0]}>
+              <cylinderGeometry args={[0.12, 0.18, 3.0, 8]} />
+              <meshStandardMaterial color="#eef2ff" roughness={0.8} side={THREE.DoubleSide} />
+            </mesh>
+            {/* Black spots (simple rings/bands for optimization instead of texture for now) */}
+            <mesh position={[0, 0.5, 0]} rotation={[0, 0, 0.1]}>
+              <torusGeometry args={[0.16, 0.02, 4, 8]} />
+              <meshStandardMaterial color="#1f2937" side={THREE.DoubleSide} />
+            </mesh>
+            <mesh position={[0, 1.2, 0]} rotation={[0, 0, -0.1]}>
+              <torusGeometry args={[0.14, 0.02, 4, 8]} />
+              <meshStandardMaterial color="#1f2937" side={THREE.DoubleSide} />
+            </mesh>
+            <mesh position={[0, 2.0, 0]} rotation={[0, 0, 0.05]}>
+              <torusGeometry args={[0.13, 0.02, 4, 8]} />
+              <meshStandardMaterial color="#1f2937" side={THREE.DoubleSide} />
+            </mesh>
+
+            {/* Foliage - Sparse, higher up */}
+            <mesh castShadow position={[0, 3.2, 0]}>
+              <dodecahedronGeometry args={[1.2, 0]} />
+              <meshStandardMaterial color="#4d7c0f" roughness={0.8} side={THREE.DoubleSide} /> {/* Lighter/Yellowish Green */}
+            </mesh>
+            <mesh castShadow position={[0.5, 2.8, 0]}>
+              <dodecahedronGeometry args={[0.8, 0]} />
+              <meshStandardMaterial color="#4d7c0f" roughness={0.8} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
+        );
+      }
+    }
     case ResourceType.STONE:
       return (
         <mesh castShadow position={[entity.pos.x, 0.3 * scale, entity.pos.y]} scale={scale} rotation={[rot, rot, rot]}>
@@ -504,19 +676,90 @@ const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity }) => {
       );
     case ResourceType.FOOD:
       return (
-        <mesh castShadow position={[entity.pos.x, 0.4, entity.pos.y]} scale={scale}>
-          <sphereGeometry args={[0.4, 8, 8]} />
-          <meshStandardMaterial color="#e11d48" />
-        </mesh>
+        <group position={[entity.pos.x, 0, entity.pos.y]} scale={scale}>
+          <mesh castShadow position={[0, 0.4, 0]}>
+            <sphereGeometry args={[0.2, 8, 8]} />
+            <meshStandardMaterial color="#e11d48" />
+          </mesh>
+          <mesh position={[0, 0.1, 0]}>
+            <cylinderGeometry args={[0.05, 0.05, 0.4]} />
+            <meshStandardMaterial color="#166534" />
+          </mesh>
+        </group>
       );
     default:
       return (
         <group position={pos} rotation={[0, rot, 0]} scale={scale * 0.8}>
-          <mesh castShadow position={[0, 0.5, 0]}><sphereGeometry args={[0.6, 6, 6]} /><meshStandardMaterial color="#166534" flatShading /></mesh>
+          <mesh castShadow position={[0, 0.5, 0]}><sphereGeometry args={[0.6, 6, 6]} /><meshStandardMaterial color="#166534" flatShading side={THREE.DoubleSide} /></mesh>
         </group>
       );
   }
 });
+
+const GrassField: React.FC<{ islandRadius: number; worldSize: number }> = ({ islandRadius, worldSize }) => {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const count = 8000;
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
+  useEffect(() => {
+    if (!meshRef.current) return;
+
+    for (let i = 0; i < count; i++) {
+      // Random position within island
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.sqrt(Math.random()) * (islandRadius - 10); // Stay within island
+      const x = (worldSize / 2) + Math.cos(angle) * radius;
+      const z = (worldSize / 2) + Math.sin(angle) * radius;
+
+      // Avoid center (spawn area)
+      const distFromCenter = Math.hypot(x - worldSize / 2, z - worldSize / 2);
+      if (distFromCenter < 15) {
+        i--;
+        continue;
+      }
+
+      dummy.position.set(x, 0, z);
+      dummy.rotation.y = Math.random() * Math.PI;
+      // Scale variation
+      const s = 0.5 + Math.random() * 0.5;
+      dummy.scale.set(s, s, s);
+      dummy.updateMatrix();
+      meshRef.current.setMatrixAt(i, dummy.matrix);
+      // Vary color slightly (requires custom shader or altering instance color attribute, 
+      // sticking to simple material for now to avoid crash)
+    }
+    meshRef.current.instanceMatrix.needsUpdate = true;
+  }, [islandRadius, worldSize, dummy]);
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, count]} castShadow receiveShadow>
+      <coneGeometry args={[0.05, 0.4, 3]} />
+      <meshStandardMaterial color="#4ade80" transparent opacity={0.8} />
+    </instancedMesh>
+  );
+};
+
+const ShakeGroup: React.FC<{ entity: Entity; lastHit?: { id: string; time: number } | null; children: React.ReactNode }> = ({ entity, lastHit, children }) => {
+  const groupRef = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (lastHit && lastHit.id === entity.id) {
+      const timeSinceHit = Date.now() - lastHit.time;
+      if (timeSinceHit < 250) {
+        const intensity = 0.1 * (1 - timeSinceHit / 250);
+        if (groupRef.current) {
+          groupRef.current.rotation.z = Math.sin(timeSinceHit * 0.1) * intensity;
+          groupRef.current.rotation.x = Math.cos(timeSinceHit * 0.1) * intensity;
+        }
+      } else {
+        if (groupRef.current) {
+          groupRef.current.rotation.z = 0;
+          groupRef.current.rotation.x = 0;
+        }
+      }
+    }
+  });
+  return <group ref={groupRef}>{children}</group>;
+};
 
 export const GameCanvas: React.FC<GameWorldProps> = ({
   playerPosition,
@@ -527,7 +770,9 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
   onFootstep,
   keysPressed,
   cameraMode,
-  velocity
+  velocity,
+  lastAttack,
+  lastHit
 }) => {
   return (
     <div className="absolute inset-0 w-full h-full bg-[#bae6fd]">
@@ -543,6 +788,7 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           keys={keysPressed}
           mode={cameraMode}
           initialPos={playerPosition}
+          lastAttack={lastAttack} // Pass it down
         />
 
         <ambientLight intensity={0.6} />
@@ -567,7 +813,16 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           </mesh>
         </group>
 
-        {entities && Array.isArray(entities) && entities.map(ent => (ent ? <ForestElement key={ent.id} entity={ent} /> : null))}
+        {/* Instanced Grass */}
+        <GrassField islandRadius={islandRadius} worldSize={worldSize} />
+
+        {entities && Array.isArray(entities) && entities.map(ent => (
+          ent ? (
+            <ShakeGroup key={ent.id} entity={ent} lastHit={lastHit}>
+              <ForestElement entity={ent} />
+            </ShakeGroup>
+          ) : null
+        ))}
 
         <ContactShadows
           position={[worldSize / 2, 0.01, worldSize / 2]}
