@@ -9,6 +9,8 @@ coverage
 # Production
 build
 dist
+docs
+.agent
 
 # Misc
 .DS_Store
