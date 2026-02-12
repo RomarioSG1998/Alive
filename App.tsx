@@ -8,6 +8,7 @@ import { HUD } from './components/ui/HUD';
 import { GameCanvas } from './components/GameCanvas';
 import { MiniMap } from './components/ui/MiniMap';
 import { useGameStore } from './store/gameStore';
+import { LAKES } from './utils/constants';
 
 const WORLD_SIZE = 3000;
 const ISLAND_RADIUS = 220; // Reduced from 350
@@ -53,7 +54,9 @@ export default function App() {
     generateAvatar().then(url => setAvatarUrl(url));
   }, []);
 
-  const createEntity = useCallback((isResource: boolean): Entity => {
+  const createEntity = useCallback((isResource: boolean, attempts = 0): Entity => {
+    if (attempts > 10) return null as any; // Safety break
+
     let type: ResourceType;
     if (isResource) {
       const types = [ResourceType.WOOD, ResourceType.STONE, ResourceType.FOOD];
@@ -66,14 +69,23 @@ export default function App() {
     const angle = Math.random() * Math.PI * 2;
     // Keep entities off the beach (Radius - 50)
     const radius = 20 + Math.random() * (ISLAND_RADIUS - 50);
+
+    const x = CENTER.x + Math.cos(angle) * radius;
+    const y = CENTER.y + Math.sin(angle) * radius;
+
+    // Check Lake Collision
+    for (const lake of LAKES) {
+      const dist = Math.hypot(x - (CENTER.x + lake.x), y - (CENTER.y + lake.z));
+      if (dist < lake.r + 2) { // +2 buffer
+        return createEntity(isResource, attempts + 1);
+      }
+    }
+
     const health = isResource ? 3 : 1;
     return {
       id: Math.random().toString(36).substr(2, 9),
       type,
-      pos: {
-        x: CENTER.x + Math.cos(angle) * radius,
-        y: CENTER.y + Math.sin(angle) * radius
-      },
+      pos: { x, y },
       size: 0.8 + Math.random() * 1.5,
       rotation: Math.random() * Math.PI * 2,
       variant: Math.floor(Math.random() * 3),

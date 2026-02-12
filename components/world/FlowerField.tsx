@@ -1,5 +1,6 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
+import { LAKES } from '../../utils/constants';
 
 export const FlowerField: React.FC<{ islandRadius: number; worldSize: number }> = ({ islandRadius, worldSize }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -24,6 +25,20 @@ export const FlowerField: React.FC<{ islandRadius: number; worldSize: number }> 
             // Avoid center (spawn area)
             const distFromCenter = Math.hypot(x - worldSize / 2, z - worldSize / 2);
             if (distFromCenter < 20) {
+                i--;
+                continue;
+            }
+
+            // Avoid Lakes
+            let inLake = false;
+            for (const lake of LAKES) {
+                const dist = Math.hypot(x - (worldSize / 2 + lake.x), z - (worldSize / 2 + lake.z));
+                if (dist < lake.r + 1) {
+                    inLake = true;
+                    break;
+                }
+            }
+            if (inLake) {
                 i--;
                 continue;
             }

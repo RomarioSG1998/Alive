@@ -1,5 +1,8 @@
-import React, { useMemo } from 'react';
+
+import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
+import { LAKES } from '../../utils/constants';
 
 interface TerrainProps {
     worldSize: number;
@@ -41,6 +44,33 @@ const generateNoiseTexture = (width: number, height: number, color: string, nois
     texture.repeat.set(scale, scale);
 
     return texture;
+};
+
+// Animated Water Component
+const AnimatedWater: React.FC<{ worldSize: number }> = ({ worldSize }) => {
+    const waterRef = useRef<THREE.Mesh>(null);
+
+    useFrame((state) => {
+        if (waterRef.current) {
+            const material = waterRef.current.material as THREE.MeshStandardMaterial;
+            // Subtle wave animation through opacity pulsing
+            material.opacity = 0.55 + Math.sin(state.clock.elapsedTime * 0.5) * 0.05;
+        }
+    });
+
+    return (
+        <mesh ref={waterRef} rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[worldSize / 2, -0.5, worldSize / 2]}>
+            <planeGeometry args={[worldSize, worldSize]} />
+            <meshStandardMaterial
+                color="#0ea5e9"
+                transparent
+                opacity={0.6}
+                depthWrite={false}
+                roughness={0}
+                metalness={0.5}
+            />
+        </mesh>
+    );
 };
 
 export const Terrain: React.FC<TerrainProps> = ({ worldSize, islandRadius }) => {
@@ -88,27 +118,30 @@ export const Terrain: React.FC<TerrainProps> = ({ worldSize, islandRadius }) => 
             </mesh>
 
             {/* LAKES */}
-            {/* Lake 1 */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[worldSize / 2 + 60, 0.08, worldSize / 2 + 40]}>
-                <circleGeometry args={[25, 32]} />
-                <meshStandardMaterial map={textures.ocean} color="#38bdf8" roughness={0.2} metalness={0.1} />
-            </mesh>
-            {/* Lake 2 */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[worldSize / 2 - 50, 0.08, worldSize / 2 + 70]}>
-                <circleGeometry args={[18, 32]} />
-                <meshStandardMaterial map={textures.ocean} color="#38bdf8" roughness={0.2} metalness={0.1} />
-            </mesh>
-            {/* Lake 3 - Small Pond */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[worldSize / 2 - 80, 0.08, worldSize / 2 - 40]}>
-                <circleGeometry args={[12, 32]} />
-                <meshStandardMaterial map={textures.ocean} color="#38bdf8" roughness={0.2} metalness={0.1} />
-            </mesh>
+            {LAKES.map((lake, i) => (
+                <group key={i}>
+                    {/* Lake Floor (darker sand/mud) */}
+                    <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[worldSize / 2 + lake.x, -0.3, worldSize / 2 + lake.z]}>
+                        <circleGeometry args={[lake.r, 32]} />
+                        <meshStandardMaterial color="#8b7355" roughness={1} />
+                    </mesh>
+                    {/* Lake Water - Enhanced with better transparency */}
+                    <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[worldSize / 2 + lake.x, 0.08, worldSize / 2 + lake.z]}>
+                        <circleGeometry args={[lake.r, 32]} />
+                        <meshStandardMaterial
+                            color="#06b6d4"
+                            transparent
+                            opacity={0.7}
+                            roughness={0.05}
+                            metalness={0.6}
+                            envMapIntensity={1.5}
+                        />
+                    </mesh>
+                </group>
+            ))}
 
-            {/* Water Surface */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[worldSize / 2, -0.5, worldSize / 2]}>
-                <planeGeometry args={[worldSize, worldSize]} />
-                <meshStandardMaterial color="#0ea5e9" transparent opacity={0.6} depthWrite={false} roughness={0} metalness={0.5} />
-            </mesh>
+            {/* Animated Ocean Water Surface */}
+            <AnimatedWater worldSize={worldSize} />
         </group>
     );
 };

@@ -8,6 +8,7 @@ import { PlayerController } from './player/PlayerController';
 import { ForestElement } from './world/ForestElement';
 import { GrassField } from './world/GrassField';
 import { FlowerField } from './world/FlowerField';
+import { LakeLife } from './world/LakeLife';
 import { ShakeGroup } from './effects/ShakeGroup';
 import { Terrain } from './world/Terrain';
 import { useGameStore } from '../store/gameStore';
@@ -70,6 +71,7 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           <Terrain worldSize={worldSize} islandRadius={islandRadius} />
           <GrassField islandRadius={islandRadius} worldSize={worldSize} />
           <FlowerField islandRadius={islandRadius} worldSize={worldSize} />
+          <LakeLife worldSize={worldSize} />
         </group>
 
         {entities.map((ent) => (
