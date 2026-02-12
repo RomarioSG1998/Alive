@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alive: Survival Chronicles</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #bae6fd;
+            color: #1e293b;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .scanline {
+            width: 100%;
+            height: 4px;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.03);
+            opacity: 0.05;
+            position: absolute;
+            bottom: 100%;
+            animation: scanline 4s linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes scanline {
+            0% {
+                transform: translateY(0);
+            }
+
+            100% {
+                transform: translateY(100vh);
+            }
+        }
+
+        .mask-linear-fade {
+            mask-image: linear-gradient(to top, black 60%, transparent 100%);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+    <div class="scanline"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>

@@ -1,0 +1,9 @@
+/* Basic styles for the Alive project */
+:root {
+  color-scheme: light dark;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
