@@ -9,6 +9,10 @@ import { GameCanvas } from './components/GameCanvas';
 import { MiniMap } from './components/ui/MiniMap';
 import { useGameStore } from './store/gameStore';
 import { LAKES } from './utils/constants';
+import { getTerrainHeight } from './utils/terrainUtils';
+import { storageService } from './services/storageService';
+import { PlayerSetup } from './components/ui/PlayerSetup';
+import { SavedGameState } from './types';
 
 const WORLD_SIZE = 3000;
 const ISLAND_RADIUS = 220; // Reduced from 350
@@ -17,8 +21,10 @@ const RESOURCE_LIMIT = 100; // Reduced to fit smaller island
 const DECOR_LIMIT = 250;
 
 export default function App() {
-  // Local state for things that don't need to be global or are strictly UI ephemeral
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   // Game Store
   const {
@@ -51,7 +57,60 @@ export default function App() {
   const playerPosRef = useRef<Vector2>(CENTER);
 
   useEffect(() => {
+    // 1. Check Profile
+    const profile = storageService.loadPlayerProfile();
+    if (!profile) {
+      setShowSetup(true);
+    } else {
+      useGameStore.getState().setPlayerProfile(profile.name, profile.avatarType);
+
+      // 2. Try loading game state
+      const savedState = storageService.loadGameState();
+      if (savedState) {
+        const lakeSurfaceY = -0.15;
+        const isInLakeCircle = LAKES.some((lake) => {
+          const lx = CENTER.x + lake.x;
+          const ly = CENTER.y + lake.z;
+          return Math.hypot(savedState.position.x - lx, savedState.position.y - ly) < lake.r;
+        });
+        const groundY = getTerrainHeight(savedState.position.x, savedState.position.y, WORLD_SIZE, ISLAND_RADIUS);
+        const isInLakeWater = isInLakeCircle && groundY < lakeSurfaceY - 0.02;
+
+        const safePos = isInLakeWater ? CENTER : savedState.position;
+        setPlayerPosition(safePos);
+        playerPosRef.current = safePos;
+        useGameStore.getState().setInventory(savedState.inventory);
+        useGameStore.getState().setStructures(savedState.structures);
+        useGameStore.getState().updateHealth(savedState.health - useGameStore.getState().health);
+        useGameStore.getState().updateHunger(savedState.hunger - useGameStore.getState().hunger);
+        addLog(`Bem-vindo de volta, ${profile.name}!`);
+      }
+    }
+
+    setIsReady(true);
     generateAvatar().then(url => setAvatarUrl(url));
+  }, [addLog]);
+
+  // 3. Auto-save every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const profile = storageService.loadPlayerProfile();
+      if (!profile) return;
+
+      const state = useGameStore.getState();
+      const gameState: SavedGameState = {
+        position: playerPosRef.current,
+        inventory: state.inventory,
+        health: state.health,
+        hunger: state.hunger,
+        structures: state.structures,
+        lastSaved: Date.now()
+      };
+      storageService.saveGameState(gameState);
+      // addLog("Jogo salvo."); // Silent save for better UX
+    }, 15000); // 15 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   const createEntity = useCallback((isResource: boolean, attempts = 0): Entity => {
@@ -113,7 +172,15 @@ export default function App() {
       lastLogicUpdate.current = now;
 
       const dist = Math.hypot(pos.x - CENTER.x, pos.y - CENTER.y);
-      const inWater = dist > ISLAND_RADIUS;
+      const lakeSurfaceY = -0.15;
+      const inLakeCircle = LAKES.some((lake) => {
+        const lx = CENTER.x + lake.x;
+        const ly = CENTER.y + lake.z;
+        return Math.hypot(pos.x - lx, pos.y - ly) < lake.r;
+      });
+      const groundY = getTerrainHeight(pos.x, pos.y, WORLD_SIZE, ISLAND_RADIUS);
+      const inLakeWater = inLakeCircle && groundY < lakeSurfaceY - 0.02;
+      const inWater = dist > ISLAND_RADIUS || inLakeWater;
       const velLen = vel ? (typeof vel.length === 'function' ? vel.length() : (vel as any).length || 0) : 0;
       const isRunning = velLen > 15;
 
@@ -195,8 +262,8 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Robust check: Use both e.code (physical) and e.key (value)
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code) ||
-        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ControlLeft', 'ControlRight'].includes(e.code) ||
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Control'].includes(e.key)) {
         e.preventDefault();
       }
 
@@ -215,7 +282,10 @@ export default function App() {
       if (code === 'ArrowLeft' || key === 'ArrowLeft') { keysPressed.current['KeyA'] = true; moveKey = 'ArrowLeft'; }
       if (code === 'ArrowRight' || key === 'ArrowRight') { keysPressed.current['KeyD'] = true; moveKey = 'ArrowRight'; }
 
-      // DOUBLE TAP TO RUN LOGIC
+      if (code === 'ControlLeft' || code === 'ControlRight' || key === 'Control') {
+        keysPressed.current['Control'] = true;
+        keysPressed.current['Ctrl'] = true;
+      }
       if (moveKey) {
         const now = Date.now();
         if (lastTap.current.key === moveKey && (now - lastTap.current.time) < 300) {
@@ -239,6 +309,10 @@ export default function App() {
       keysPressed.current[code] = false;
       keysPressed.current[key] = false;
 
+      if (code === 'ControlLeft' || code === 'ControlRight' || key === 'Control') {
+        keysPressed.current['Control'] = false;
+        keysPressed.current['Ctrl'] = false;
+      }
       // CLEAR ALIASES
       let moveKey = '';
       if (code === 'ArrowUp' || key === 'ArrowUp') { keysPressed.current['KeyW'] = false; moveKey = 'ArrowUp'; }
@@ -283,68 +357,91 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#bae6fd] select-none font-sans">
-      <GameCanvas
-        playerPosition={playerPosition}
-        worldSize={WORLD_SIZE}
-        islandRadius={ISLAND_RADIUS}
-        velocity={playerVelocity}
-        onUpdatePosition={handleUpdatePosition}
-        onFootstep={onFootstep}
-        keysPressed={keysPressed}
-      />
+      {(showSetup || showSettings) && <PlayerSetup onComplete={() => { setShowSetup(false); setShowSettings(false); }} />}
 
-      <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between">
-        <div className="flex justify-between items-start pointer-events-auto">
-          <div className="flex flex-col gap-4">
-            <h1 className="text-4xl font-black tracking-tighter text-zinc-800 opacity-90 uppercase italic mono drop-shadow-md">ALIVE</h1>
-            <HUD avatarUrl={avatarUrl} />
-          </div>
+      {!showSetup && isReady && (
+        <>
+          <GameCanvas
+            playerPosition={playerPosition}
+            worldSize={WORLD_SIZE}
+            islandRadius={ISLAND_RADIUS}
+            velocity={playerVelocity}
+            onUpdatePosition={handleUpdatePosition}
+            onFootstep={onFootstep}
+            keysPressed={keysPressed}
+          />
 
-          <div className="flex flex-col items-end gap-6">
-            <button onClick={handleBuild} className="px-6 py-3 bg-emerald-600/80 hover:bg-emerald-500 rounded-2xl border border-white/20 text-white mono text-xs font-bold transition-all hover:scale-105 pointer-events-auto shadow-lg shadow-emerald-900/20">
-              <i className="fas fa-hammer mr-2"></i> Construir (5W, 3S)
-            </button>
-            <MiniMap
-              playerPosition={playerPosition}
-              worldSize={WORLD_SIZE}
-              islandRadius={ISLAND_RADIUS}
-              velocity={playerVelocity}
-              entities={entities}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-between items-end">
-          <div className="w-96 h-48 overflow-hidden flex flex-col-reverse gap-3 mask-linear-fade pointer-events-none">
-            {log.map((entry, i) => (
-              <div key={i} className={`text-sm transition-all duration-1000 ${i === 0 ? 'text-zinc-900 font-bold translate-x-2' : 'text-zinc-500 opacity-60'}`}>
-                {entry}
+          <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between">
+            <div className="flex justify-between items-start pointer-events-auto">
+              <div className="flex flex-col gap-4">
+                <h1 className="text-4xl font-black tracking-tighter text-zinc-800 opacity-90 uppercase italic mono drop-shadow-md">ALIVE</h1>
+                <HUD avatarUrl={avatarUrl} />
               </div>
-            ))}
-          </div>
 
-          <div className="flex flex-col gap-3 p-4 bg-white/20 rounded-3xl backdrop-blur-xl border border-white/40 shadow-xl pointer-events-auto">
-            <div className="flex gap-4">
-              {inventory.map(item => (
-                <div key={item.type} className="flex flex-col items-center">
-                  <div className="w-14 h-14 bg-white/40 border border-white/40 flex items-center justify-center rounded-2xl shadow-sm">
-                    {item.type === ResourceType.WOOD && <i className="fas fa-tree text-amber-900 text-xl"></i>}
-                    {item.type === ResourceType.STONE && <i className="fas fa-cube text-zinc-600 text-xl"></i>}
-                    {item.type === ResourceType.FOOD && <i className="fas fa-apple-whole text-rose-600 text-xl"></i>}
-                  </div>
-                  <span className="text-[10px] mt-2 font-black mono text-zinc-900">{item.count || 0}</span>
+              <div className="flex flex-col items-end gap-6">
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowSettings(true)}
+                    className="w-12 h-12 bg-white/20 hover:bg-white/40 rounded-2xl border border-white/40 flex items-center justify-center text-white transition-all hover:rotate-90 pointer-events-auto backdrop-blur-xl shadow-lg"
+                    title="Configurações de Perfil"
+                  >
+                    <i className="fas fa-cog text-xl"></i>
+                  </button>
+                  <button onClick={handleBuild} className="px-6 py-3 bg-emerald-600/80 hover:bg-emerald-500 rounded-2xl border border-white/20 text-white mono text-xs font-bold transition-all hover:scale-105 pointer-events-auto shadow-lg shadow-emerald-900/20">
+                    <i className="fas fa-hammer mr-2"></i> Construir (5W, 3S)
+                  </button>
                 </div>
-              ))}
+                <MiniMap
+                  playerPosition={playerPosition}
+                  worldSize={WORLD_SIZE}
+                  islandRadius={ISLAND_RADIUS}
+                  velocity={playerVelocity}
+                  entities={entities}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-between items-end">
+              <div className="w-96 h-48 overflow-hidden flex flex-col-reverse gap-3 mask-linear-fade pointer-events-none">
+                {log.map((entry, i) => (
+                  <div key={i} className={`text-sm transition-all duration-1000 ${i === 0 ? 'text-zinc-900 font-bold translate-x-2' : 'text-zinc-500 opacity-60'}`}>
+                    {entry}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-3 p-4 bg-white/20 rounded-3xl backdrop-blur-xl border border-white/40 shadow-xl pointer-events-auto">
+                <div className="flex gap-4">
+                  {inventory.map(item => (
+                    <div key={item.type} className="flex flex-col items-center">
+                      <div className="w-14 h-14 bg-white/40 border border-white/40 flex items-center justify-center rounded-2xl shadow-sm">
+                        {item.type === ResourceType.WOOD && <i className="fas fa-tree text-amber-900 text-xl"></i>}
+                        {item.type === ResourceType.STONE && <i className="fas fa-cube text-zinc-600 text-xl"></i>}
+                        {item.type === ResourceType.FOOD && <i className="fas fa-apple-whole text-rose-600 text-xl"></i>}
+                      </div>
+                      <span className="text-[10px] mt-2 font-black mono text-zinc-900">{item.count || 0}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {(health <= 0) && (
-        <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-10 animate-fade-in pointer-events-auto">
-          <h2 className="text-6xl font-black text-red-600 mb-4 mono">FIM DA JORNADA</h2>
-          <button onClick={() => window.location.reload()} className="px-10 py-4 bg-red-600 text-white hover:bg-red-500 rounded-full transition-all mono font-black">RECOMEÇAR</button>
-        </div>
+          {(health <= 0) && (
+            <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-10 animate-fade-in pointer-events-auto">
+              <h2 className="text-6xl font-black text-red-600 mb-4 mono">FIM DA JORNADA</h2>
+              <button
+                onClick={() => {
+                  storageService.clearGameState();
+                  window.location.reload();
+                }}
+                className="px-10 py-4 bg-red-600 text-white hover:bg-red-500 rounded-full transition-all mono font-black"
+              >
+                RECOMEÇAR
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

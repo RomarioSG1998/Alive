@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
-import { CameraMode, Entity, ResourceType, Vector2 } from '../../types';
+import { AvatarType, CameraMode, Entity, ResourceType, Vector2 } from '../../types';
 import { Avatar } from './Avatar';
 import { FootstepParticles } from '../effects/VFX';
+import { getTerrainHeight } from '../../utils/terrainUtils';
+import { LAKES } from '../../utils/constants';
 
 const lerpAngle = (start: number, end: number, t: number) => {
     const shortestAngle = ((((end - start) % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
@@ -20,6 +22,7 @@ interface PlayerControllerProps {
     mode: CameraMode;
     initialPos: Vector2;
     lastAttack?: number;
+    avatarType?: AvatarType;
 }
 
 export const PlayerController: React.FC<PlayerControllerProps> = ({
@@ -31,11 +34,13 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     keys,
     mode,
     initialPos,
-    lastAttack
+    lastAttack,
+    avatarType = 'gemini'
 }) => {
     const { camera } = useThree();
     const playerRef = useRef<THREE.Group>(null);
     const internalVel = useRef(new THREE.Vector2(0, 0));
+    const raycasterRef = useRef(new THREE.Raycaster());
     const walkTime = useRef(0);
     const lastStateSync = useRef(0);
     const lastFootIndex = useRef(-1);
@@ -43,10 +48,11 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     useEffect(() => {
         if (playerRef.current && !initialized.current) {
-            playerRef.current.position.set(initialPos.x, 0, initialPos.y);
+            const startY = getTerrainHeight(initialPos.x, initialPos.y, worldSize, islandRadius);
+            playerRef.current.position.set(initialPos.x, startY, initialPos.y);
             initialized.current = true;
         }
-    }, [initialPos]);
+    }, [initialPos, worldSize, islandRadius]);
 
     const cameraRotation = useRef({ x: 0.3, y: Math.PI }); // x=pitch, y=yaw
 
@@ -54,9 +60,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const onMouseMove = (e: MouseEvent) => {
             if (document.pointerLockElement === document.body) {
                 cameraRotation.current.y -= e.movementX * 0.003;
-                cameraRotation.current.x -= e.movementY * 0.003;
-                // Clamp Pitch (-0.1 to 1.0 radians)
-                cameraRotation.current.x = Math.max(-0.1, Math.min(1.2, cameraRotation.current.x));
+                cameraRotation.current.x -= e.movementY * 0.004;
+                // Clamp Pitch to nearly 90 degrees (1.55 rad ~= 89 deg)
+                cameraRotation.current.x = Math.max(-1.55, Math.min(1.55, cameraRotation.current.x));
             }
         };
         const onClick = () => document.body.requestPointerLock();
@@ -74,11 +80,24 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         if (!playerRef.current || !internalVel.current) return;
 
         const d = Math.min(delta, 0.1);
-        const isRunning = keys.current['ShiftLeft'] || keys.current['ShiftRight'];
+        const lakeSurfaceY = -0.15;
+        const isRunning =
+            keys.current['ShiftLeft'] ||
+            keys.current['ShiftRight'] ||
+            keys.current['ControlLeft'] ||
+            keys.current['ControlRight'] ||
+            keys.current['Control'] ||
+            keys.current['Ctrl'];
 
         const pPos = playerRef.current.position;
         const distFromCenter = Math.hypot(pPos.x - worldSize / 2, pPos.z - worldSize / 2);
-        const inWater = distFromCenter > islandRadius;
+        const inLakeCircle = LAKES.some((lake) => {
+            const lx = worldSize / 2 + lake.x;
+            const lz = worldSize / 2 + lake.z;
+            return Math.hypot(pPos.x - lx, pPos.z - lz) < lake.r;
+        });
+        const inLakeWater = inLakeCircle && pPos.y < lakeSurfaceY - 0.02;
+        const inWater = distFromCenter > islandRadius || inLakeWater;
 
         // DEBUG: Check Run State
         if (internalVel.current.length() > 0.1) {
@@ -88,7 +107,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         // Speed Tuning: Reduced for realistic human scale (1 unit ~ 1 meter)
         // Walk: 6 units/sec
         // Run: 14 units/sec (Increased for contrast)
-        const maxSpeed = isRunning ? (inWater ? 8 : 14) : (inWater ? 3 : 6);
+        const maxSpeed = isRunning ? (inWater ? 10 : 20) : (inWater ? 3 : 6);
 
         // Physics: Slower acceleration for weight, higher friction for stops
         const accel = (isRunning ? 50 : 25) * (inWater ? 0.6 : 1.0);
@@ -179,9 +198,46 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         pPos.x = newX;
         pPos.z = newZ;
 
+        // Follow Terrain Elevation
+        const sampleR = 0.35;
+        const groundClearance = 0.05;
+
+        const hCenter = getTerrainHeight(pPos.x, pPos.z, worldSize, islandRadius);
+        const hX1 = getTerrainHeight(pPos.x + sampleR, pPos.z, worldSize, islandRadius);
+        const hX2 = getTerrainHeight(pPos.x - sampleR, pPos.z, worldSize, islandRadius);
+        const hZ1 = getTerrainHeight(pPos.x, pPos.z + sampleR, worldSize, islandRadius);
+        const hZ2 = getTerrainHeight(pPos.x, pPos.z - sampleR, worldSize, islandRadius);
+        const fallbackY = Math.max(hCenter, hX1, hX2, hZ1, hZ2);
+
+        let groundY = fallbackY;
+        const terrainObj = state.scene.getObjectByName('islandTerrain');
+        if (terrainObj) {
+            const rayOrigin = new THREE.Vector3(pPos.x, 200, pPos.z);
+            const rayDir = new THREE.Vector3(0, -1, 0);
+            const raycaster = raycasterRef.current;
+            raycaster.set(rayOrigin, rayDir);
+            raycaster.far = 500;
+
+            const hits = raycaster.intersectObject(terrainObj, true);
+            if (hits.length > 0) {
+                groundY = hits[0].point.y;
+            }
+        }
+
+        const targetY = groundY + groundClearance;
+        const yAlphaUp = 0.65;
+        const yAlphaDown = 0.2;
+        const yAlpha = targetY > pPos.y ? yAlphaUp : yAlphaDown;
+        pPos.y = THREE.MathUtils.lerp(pPos.y, targetY, yAlpha);
+        if (pPos.y < targetY) pPos.y = targetY;
+
         const speed = internalVel.current.length();
 
-        if (speed > 0.1) {
+        if (mode === '1P') {
+            // In 1P, character body ALWAYS matches camera yaw
+            playerRef.current.rotation.y = cameraRotation.current.y;
+            walkTime.current += d * speed * (inWater ? 0.6 : 0.8);
+        } else if (speed > 0.1) {
             // Animation Sync: 
             // 0.8 multiplier = matches foot speed to ground speed for ~6 units/sec
             walkTime.current += d * speed * (inWater ? 0.6 : 0.8);
@@ -199,52 +255,75 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         let camTarget = new THREE.Vector3();
         let lookTarget = new THREE.Vector3();
 
-        if (mode === '3P') {
-            // Mouse Orbit Logic
-            const rotY = cameraRotation.current.y;
-            const rotX = cameraRotation.current.x;
-            const camDist = 18;
+        // SHARED MOUSE ORBIT CALCULATION
+        const rotY = cameraRotation.current.y;
+        const rotX = cameraRotation.current.x;
 
-            // Calculate position on sphere surface
-            const hDist = camDist * Math.cos(rotX);
-            const vDist = camDist * Math.sin(rotX); // Height
+        if (mode === '3P' || mode === '2P') {
+            let camDist = mode === '3P' ? 18 : 8; // Default distances
+            const heightOffset = mode === '3P' ? 10 : 4;
 
-            const offsetX = Math.sin(rotY) * hDist;
-            const offsetZ = Math.cos(rotY) * hDist;
+            // Calculate "Ideal" target first
+            let hDist = camDist * Math.cos(rotX);
+            let vDist = camDist * Math.sin(rotX);
+            let idealX = pPos.x + Math.sin(rotY) * hDist;
+            let idealZ = pPos.z + Math.cos(rotY) * hDist;
+            let idealY = pPos.y + heightOffset + vDist;
 
-            camTarget.set(pPos.x + offsetX, pPos.y + 10 + vDist, pPos.z + offsetZ);
-            lookTarget.set(pPos.x, 2.5, pPos.z);
+            // Ground Collision Check & Dynamic Zoom
+            // If the camera is looking up (rotX < 0), it goes lower.
+            const terrainHAtIdeal = getTerrainHeight(idealX, idealZ, worldSize, islandRadius);
+            const safetyMargin = 0.8;
 
-            // Responsive Lerp for orbit
-            camera.position.lerp(camTarget, 0.2);
+            if (idealY < terrainHAtIdeal + safetyMargin) {
+                // If we're looking up, we can shorten the distance to keep the camera above ground
+                // Solving for camDist: pPos.y + heightOffset + camDist * sin(rotX) = terrainH + margin
+                const sinX = Math.sin(rotX);
+                if (sinX < -0.1) { // Only if tilting up significantly
+                    const targetDist = (terrainHAtIdeal + safetyMargin - (pPos.y + heightOffset)) / sinX;
+                    camDist = Math.max(2.0, Math.min(camDist, targetDist));
+                }
+            }
+
+            // Recalculate with adjusted distance
+            hDist = camDist * Math.cos(rotX);
+            vDist = camDist * Math.sin(rotX);
+            const finalX = pPos.x + Math.sin(rotY) * hDist;
+            const finalZ = pPos.z + Math.cos(rotY) * hDist;
+            const finalTerrainH = getTerrainHeight(finalX, finalZ, worldSize, islandRadius);
+            const finalY = Math.max(pPos.y + heightOffset + vDist, finalTerrainH + safetyMargin);
+
+            camTarget.set(finalX, finalY, finalZ);
+            lookTarget.set(pPos.x, mode === '3P' ? 2.5 : 1.8, pPos.z);
+
+            camera.position.lerp(camTarget, mode === '2P' ? 0.15 : 0.2);
 
         } else if (mode === '1P') {
             const bobY = Math.sin(walkTime.current) * (speed * 0.0006);
 
-            // Push camera forward slightly to align with eyes and peek past body
-            const forwardOffset = new THREE.Vector3(0, 0, 0.4).applyEuler(playerRef.current.rotation);
+            // Camera position is at eyes, slightly forward
+            // Forward is defined by rotY
+            const camDirX = -Math.sin(rotY);
+            const camDirZ = -Math.cos(rotY);
 
-            camTarget.set(pPos.x + forwardOffset.x, 1.76 + bobY, pPos.z + forwardOffset.z);
+            camTarget.set(pPos.x + camDirX * 0.2, pPos.y + 1.76 + bobY, pPos.z + camDirZ * 0.2);
 
-            // View direction matches Avatar's forward face (Positive Z in local space)
-            const viewDir = new THREE.Vector3(0, 0, 1).applyEuler(playerRef.current.rotation);
+            // View direction matches cameraRotation
+            const viewDir = new THREE.Vector3(
+                -Math.sin(rotY) * Math.cos(rotX),
+                Math.sin(rotX),
+                -Math.cos(rotY) * Math.cos(rotX)
+            );
             lookTarget.copy(camTarget).add(viewDir.multiplyScalar(10));
 
-            // Snappier lerp for 1P so it feels responsive
-            camera.position.lerp(camTarget, 0.25);
-
-        } else {
-            camTarget.set(pPos.x, 4, pPos.z - 16);
-            lookTarget.set(pPos.x, 1.6, pPos.z);
-            camera.position.lerp(camTarget, 0.08);
+            camera.position.lerp(camTarget, 0.3);
         }
 
         const targetDir = lookTarget.clone().sub(camera.position).normalize();
         const currentLook = new THREE.Vector3();
         camera.getWorldDirection(currentLook);
 
-        // Faster look-at interpolation for 1P
-        const lookAlpha = mode === '1P' ? 0.3 : 0.08;
+        const lookAlpha = mode === '1P' ? 0.4 : 0.12;
         camera.lookAt(camera.position.clone().add(currentLook.lerp(targetDir, lookAlpha)));
 
         if (state.clock.elapsedTime - lastStateSync.current > 0.05) {
@@ -255,16 +334,24 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     const currentPos = playerRef.current ? playerRef.current.position : new THREE.Vector3(initialPos.x, 0, initialPos.y);
     const renderDistFromCenter = Math.hypot(currentPos.x - worldSize / 2, currentPos.z - worldSize / 2);
+    const lakeSurfaceY = -0.15;
+    const renderInLakeCircle = LAKES.some((lake) => {
+        const lx = worldSize / 2 + lake.x;
+        const lz = worldSize / 2 + lake.z;
+        return Math.hypot(currentPos.x - lx, currentPos.z - lz) < lake.r;
+    });
+    const renderInLakeWater = renderInLakeCircle && currentPos.y < lakeSurfaceY - 0.02;
 
     return (
         <>
             <group ref={playerRef}>
                 <Avatar
                     velocity={internalVel.current}
-                    isWet={renderDistFromCenter > islandRadius}
+                    isWet={renderDistFromCenter > islandRadius || renderInLakeWater}
                     isFirstPerson={mode === '1P'}
                     walkTime={walkTime}
                     lastAttack={lastAttack}
+                    avatarType={avatarType}
                 />
             </group>
 
@@ -272,7 +359,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
             <FootstepParticles
                 playerPosition={currentPos}
                 velocity={internalVel.current}
-                inWater={renderDistFromCenter > islandRadius}
+                inWater={renderDistFromCenter > islandRadius || renderInLakeWater}
             />
         </>
     );

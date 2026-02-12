@@ -12,6 +12,7 @@ import { LakeLife } from './world/LakeLife';
 import { ShakeGroup } from './effects/ShakeGroup';
 import { Terrain } from './world/Terrain';
 import { useGameStore } from '../store/gameStore';
+import { getTerrainHeight } from '../utils/terrainUtils';
 
 interface GameWorldProps {
   playerPosition: Vector2;
@@ -49,6 +50,7 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           mode={cameraMode}
           initialPos={playerPosition}
           lastAttack={lastAttack}
+          avatarType={useGameStore.getState().avatarType}
         />
 
         {/* Turn on the SUN */}
@@ -74,13 +76,17 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           <LakeLife worldSize={worldSize} />
         </group>
 
-        {entities.map((ent) => (
-          <ShakeGroup key={ent.id} entity={ent} lastHit={lastHit}>
-            <ForestElement entity={ent} />
-          </ShakeGroup>
-        ))}
+        {entities.map((ent) => {
+          const terrainY = getTerrainHeight(ent.pos.x, ent.pos.y, worldSize, islandRadius);
+          return (
+            <group key={ent.id} position={[ent.pos.x, terrainY, ent.pos.y]}>
+              <ShakeGroup entity={ent} lastHit={lastHit}>
+                <ForestElement entity={ent} />
+              </ShakeGroup>
+            </group>
+          );
+        })}
 
-        <ContactShadows position={[0, 0.05, 0]} resolution={1024} scale={50} blur={2} opacity={0.5} far={10} color="#000000" />
       </Canvas>
     </div>
   );

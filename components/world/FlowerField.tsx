@@ -1,6 +1,7 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { LAKES } from '../../utils/constants';
+import { getTerrainHeight } from '../../utils/terrainUtils';
 
 export const FlowerField: React.FC<{ islandRadius: number; worldSize: number }> = ({ islandRadius, worldSize }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -43,7 +44,8 @@ export const FlowerField: React.FC<{ islandRadius: number; worldSize: number }> 
                 continue;
             }
 
-            dummy.position.set(x, 0, z);
+            const y = getTerrainHeight(x, z, worldSize, islandRadius);
+            dummy.position.set(x, y + 0.1, z);
             dummy.rotation.y = Math.random() * Math.PI;
             dummy.rotation.x = (Math.random() - 0.5) * 0.2; // Slight tilt
             dummy.rotation.z = (Math.random() - 0.5) * 0.2;

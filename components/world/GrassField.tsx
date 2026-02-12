@@ -1,6 +1,8 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
+import { getTerrainHeight } from '../../utils/terrainUtils';
+import { LAKES } from '../../utils/constants';
 
 export const GrassField: React.FC<{ islandRadius: number; worldSize: number }> = ({ islandRadius, worldSize }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -30,7 +32,22 @@ export const GrassField: React.FC<{ islandRadius: number; worldSize: number }> =
                 continue;
             }
 
-            dummy.position.set(x, 0, z);
+            // Avoid Lakes
+            let inLake = false;
+            for (const lake of LAKES) {
+                const dist = Math.hypot(x - (worldSize / 2 + lake.x), z - (worldSize / 2 + lake.z));
+                if (dist < lake.r + 1) {
+                    inLake = true;
+                    break;
+                }
+            }
+            if (inLake) {
+                i--;
+                continue;
+            }
+
+            const y = getTerrainHeight(x, z, worldSize, islandRadius);
+            dummy.position.set(x, y + 0.1, z);
             dummy.rotation.y = Math.random() * Math.PI;
 
             // Scale variation

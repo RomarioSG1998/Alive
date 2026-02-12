@@ -42,3 +42,20 @@ export interface GameState {
 
 export type CameraMode = '1P' | '2P' | '3P';
 
+export type AvatarType = 'gemini' | 'classic' | 'blocky' | 'robot';
+
+export interface PlayerProfile {
+    name: string;
+    avatarType: AvatarType;
+    createdAt: number;
+}
+
+export interface SavedGameState {
+    position: Vector2;
+    inventory: InventoryItem[];
+    health: number;
+    hunger: number;
+    structures: Entity[];
+    lastSaved: number;
+}
+

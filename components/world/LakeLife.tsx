@@ -2,11 +2,25 @@ import React, { useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { LAKES } from '../../utils/constants';
+import { getTerrainHeight } from '../../utils/terrainUtils';
 
-// Fish Component - Realistic model
-const Fish: React.FC<{ position: [number, number, number]; rotation: number; tailWag: number }> = ({ position, rotation, tailWag }) => {
+// Fish Component - Realistic model with self-contained animation
+const Fish: React.FC<{ position: [number, number, number]; rotation: number; tailWag: number; phase: number }> = ({ position, rotation, tailWag, phase }) => {
+    const groupRef = useRef<THREE.Group>(null);
+    const tailRef = useRef<THREE.Group>(null);
+
+    useFrame((state) => {
+        if (tailRef.current) {
+            const wag = Math.sin(state.clock.elapsedTime * 6 + phase) * 0.6;
+            tailRef.current.rotation.y = wag * 0.3;
+        }
+        if (groupRef.current) {
+            groupRef.current.rotation.z = Math.sin(state.clock.elapsedTime * 1.5 + phase) * 0.08;
+        }
+    });
+
     return (
-        <group position={position} rotation={[0, rotation, 0]}>
+        <group ref={groupRef} position={position} rotation={[0, rotation, 0]} scale={1.5}>
             {/* Main Body - Elongated ellipsoid */}
             <mesh position={[0, 0, 0]} scale={[1.2, 0.8, 0.6]}>
                 <sphereGeometry args={[0.3, 12, 8]} />
@@ -15,7 +29,7 @@ const Fish: React.FC<{ position: [number, number, number]; rotation: number; tai
                     roughness={0.2}
                     metalness={0.6}
                     emissive="#ff4500"
-                    emissiveIntensity={0.1}
+                    emissiveIntensity={0.2}
                 />
             </mesh>
 
@@ -26,7 +40,7 @@ const Fish: React.FC<{ position: [number, number, number]; rotation: number; tai
             </mesh>
 
             {/* Tail Fin - V-shaped with wagging */}
-            <group position={[-0.5, 0, 0]} rotation={[0, 0, tailWag * 0.3]}>
+            <group ref={tailRef} position={[-0.5, 0, 0]}>
                 {/* Upper tail fin */}
                 <mesh position={[-0.1, 0.08, 0]} rotation={[0, 0, -Math.PI / 6]}>
                     <boxGeometry args={[0.25, 0.02, 0.15]} />
@@ -153,6 +167,8 @@ export const LakeLife: React.FC<{ worldSize: number }> = ({ worldSize }) => {
     const fishGroupRef = useRef<THREE.Group>(null);
     const frogGroupRef = useRef<THREE.Group>(null);
 
+    const lakeWaterY = -0.15;
+
     // Fish Data - with mutable state for natural movement
     const fishData = useMemo(() => {
         const count = 30;
@@ -205,31 +221,28 @@ export const LakeLife: React.FC<{ worldSize: number }> = ({ worldSize }) => {
 
     useFrame((state, delta) => {
         const time = state.clock.elapsedTime;
+        const islandRadius = 220; // Aligned with constants.ts
 
         // Animate Fish - Smooth, natural swimming
         if (fishGroupRef.current) {
             fishGroupRef.current.children.forEach((fish, i) => {
                 const data = fishData[i];
 
-                // Smooth direction changes
                 data.nextDirectionChange -= delta;
                 if (data.nextDirectionChange <= 0) {
                     data.targetAngle = Math.random() * Math.PI * 2;
                     data.nextDirectionChange = 3 + Math.random() * 5;
                 }
 
-                // Smoothly turn toward target
                 let angleDiff = data.targetAngle - data.currentAngle;
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
                 data.currentAngle += angleDiff * delta * 0.3;
 
-                // Swim forward
-                const swimSpeed = 0.8 * delta;
+                const swimSpeed = 1.2 * delta;
                 data.x += Math.cos(data.currentAngle) * swimSpeed;
                 data.z += Math.sin(data.currentAngle) * swimSpeed;
 
-                // Stay in lake
                 const distFromCenter = Math.hypot(data.x - data.lakeCenter.x, data.z - data.lakeCenter.z);
                 if (distFromCenter > data.lakeRadius - 3) {
                     const angleToCenter = Math.atan2(data.lakeCenter.z - data.z, data.lakeCenter.x - data.x);
@@ -237,59 +250,52 @@ export const LakeLife: React.FC<{ worldSize: number }> = ({ worldSize }) => {
                     data.nextDirectionChange = 2;
                 }
 
-                // Vertical movement
-                data.y = 0.1 + Math.sin(time * 1.2 + data.verticalPhase) * 0.08;
-
-                // Tail wagging
-                const tailWag = Math.sin(time * 6 + data.phase) * 0.6;
+                const fishDepthBase = 0.25; // Adjusted for better visibility
+                const fishDepthWiggle = 0.1;
+                const desiredY =
+                    lakeWaterY -
+                    fishDepthBase +
+                    Math.sin(time * 1.2 + data.verticalPhase) * fishDepthWiggle;
+                data.y = Math.min(lakeWaterY - 0.02, desiredY);
 
                 fish.position.set(data.x, data.y, data.z);
                 fish.rotation.y = -data.currentAngle;
-                fish.rotation.z = Math.sin(time * 1.5 + data.phase) * 0.08;
-                fish.userData.tailWag = tailWag;
             });
         }
 
-        // Animate Frogs - Simpler hopping
+        // Animate Frogs
         if (frogGroupRef.current) {
             frogGroupRef.current.children.forEach((frog, i) => {
                 const data = frogData[i];
-                const lake = LAKES[data.lakeIndex];
 
                 if (!data.isJumping) {
                     data.nextHopTime -= delta;
                     if (data.nextHopTime <= 0) {
                         data.isJumping = true;
                         data.jumpProgress = 0;
-
                         const angle = Math.random() * Math.PI * 2;
-                        const hopDistance = 0.5 + Math.random() * 1.0; // Short hops: 0.5-1.5 units
+                        const hopDistance = 0.5 + Math.random() * 1.0;
                         data.targetX = data.x + Math.cos(angle) * hopDistance;
                         data.targetZ = data.z + Math.sin(angle) * hopDistance;
-
                         data.rotation = Math.atan2(data.targetZ - data.z, data.targetX - data.x);
                     }
                 } else {
                     data.jumpProgress += delta * 2.5;
-
                     if (data.jumpProgress >= 1) {
                         data.isJumping = false;
                         data.x = data.targetX;
                         data.z = data.targetZ;
-                        data.y = 0.1;
                         data.nextHopTime = 2 + Math.random() * 3;
                     } else {
                         const t = data.jumpProgress;
-                        const startX = data.x;
-                        const startZ = data.z;
-
-                        data.x = startX + (data.targetX - startX) * t;
-                        data.z = startZ + (data.targetZ - startZ) * t;
-                        data.y = 0.1 + Math.sin(t * Math.PI) * 0.08;
+                        data.x = data.x + (data.targetX - data.x) * delta * 2.5; // simple lerp
+                        data.z = data.z + (data.targetZ - data.z) * delta * 2.5;
                     }
                 }
 
-                frog.position.set(data.x, data.y, data.z);
+                const terrainH = getTerrainHeight(data.x, data.z, worldSize, islandRadius);
+                const jumpY = data.isJumping ? Math.sin(data.jumpProgress * Math.PI) * 0.4 : 0;
+                frog.position.set(data.x, terrainH + 0.1 + jumpY, data.z);
                 frog.rotation.y = data.rotation;
             });
         }
@@ -298,8 +304,8 @@ export const LakeLife: React.FC<{ worldSize: number }> = ({ worldSize }) => {
     return (
         <group>
             <group ref={fishGroupRef}>
-                {fishData.map((_, i) => (
-                    <Fish key={i} position={[0, 0, 0]} rotation={0} tailWag={0} />
+                {fishData.map((data, i) => (
+                    <Fish key={i} position={[0, 0, 0]} rotation={0} tailWag={0} phase={data.phase} />
                 ))}
             </group>
 

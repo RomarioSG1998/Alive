@@ -37,7 +37,7 @@ export const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity 
             if (treeDetails.isPine) {
                 // PINE TREE
                 return (
-                    <group position={pos} rotation={[0, rot, 0]} scale={scale}>
+                    <group rotation={[0, rot, 0]} scale={scale}>
                         {/* Trunk */}
                         <mesh castShadow position={[0, 0.8, 0]}>
                             <cylinderGeometry args={[0.2, 0.35, 1.6, 8]} />
@@ -61,7 +61,7 @@ export const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity 
             } else if (treeDetails.isOak) {
                 // OAK TREE
                 return (
-                    <group position={pos} rotation={[0, rot, 0]} scale={scale}>
+                    <group rotation={[0, rot, 0]} scale={scale}>
                         {/* Trunk */}
                         <mesh castShadow position={[0, 0.7, 0]}>
                             <cylinderGeometry args={[0.25, 0.35, 1.4, 8]} />
@@ -85,13 +85,13 @@ export const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity 
             } else {
                 // BIRCH TREE - White trunk
                 return (
-                    <group position={pos} rotation={[0, rot, 0]} scale={scale}>
+                    <group rotation={[0, rot, 0]} scale={scale}>
                         {/* Trunk */}
                         <mesh castShadow position={[0, 1.5, 0]}>
                             <cylinderGeometry args={[0.12, 0.18, 3.0, 8]} />
                             <meshStandardMaterial map={textures.birchBark} roughness={0.8} />
                         </mesh>
-                        {/* Markings - Keep dark, no texture needed for small torus */}
+                        {/* Markings */}
                         <mesh position={[0, 0.5, 0]} rotation={[0, 0, 0.1]}>
                             <torusGeometry args={[0.16, 0.02, 4, 8]} />
                             <meshStandardMaterial color="#1f2937" />
@@ -115,14 +115,14 @@ export const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity 
         }
         case ResourceType.STONE:
             return (
-                <mesh castShadow position={[entity.pos.x, 0.3 * scale, entity.pos.y]} scale={scale} rotation={[rot, rot, rot]}>
+                <mesh castShadow position={[0, 0.3 * scale, 0]} scale={scale} rotation={[rot, rot, rot]}>
                     <dodecahedronGeometry args={[0.7, 0]} />
                     <meshStandardMaterial map={textures.stone} roughness={0.9} />
                 </mesh>
             );
         case ResourceType.FOOD:
             return (
-                <group position={[entity.pos.x, 0, entity.pos.y]} scale={scale}>
+                <group scale={scale}>
                     <mesh castShadow position={[0, 0.4, 0]}>
                         <sphereGeometry args={[0.2, 8, 8]} />
                         <meshStandardMaterial map={textures.fruit} />
@@ -134,9 +134,9 @@ export const ForestElement: React.FC<{ entity: Entity }> = React.memo(({ entity 
                 </group>
             );
         default:
-            // Generic bush/shrub for other types
+            // Generic bush
             return (
-                <group position={pos} rotation={[0, rot, 0]} scale={scale * 0.8}>
+                <group rotation={[0, rot, 0]} scale={scale * 0.8}>
                     <mesh castShadow position={[0, 0.5, 0]}>
                         <dodecahedronGeometry args={[0.6, 0]} />
                         <meshStandardMaterial map={textures.bush} roughness={1} />

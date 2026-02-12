@@ -1,11 +1,15 @@
 
 import { create } from 'zustand';
-import { CameraMode, Entity, GameState, InventoryItem, ResourceType } from '../types';
+import { CameraMode, Entity, GameState, InventoryItem, ResourceType, AvatarType } from '../types';
 
 interface GameStoreState extends GameState {
     cameraMode: CameraMode;
     lastAttack: number;
     lastHit: { id: string; time: number } | null;
+
+    // Player Profile
+    playerName: string;
+    avatarType: AvatarType;
 
     // Actions
     setCameraMode: (mode: CameraMode) => void;
@@ -17,6 +21,7 @@ interface GameStoreState extends GameState {
     addLog: (message: string) => void;
     setLastAttack: (time: number) => void;
     setLastHit: (hit: { id: string; time: number } | null) => void;
+    setPlayerProfile: (name: string, avatarType: AvatarType) => void;
 }
 
 export const useGameStore = create<GameStoreState>((set) => ({
@@ -35,6 +40,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
     lastAttack: 0,
     lastHit: null,
 
+    playerName: '',
+    avatarType: 'gemini',
+
     // Actions
     setCameraMode: (mode) => set({ cameraMode: mode }),
     updateHealth: (amount) => set((state) => ({ health: Math.max(0, Math.min(100, state.health + amount)) })),
@@ -45,4 +53,5 @@ export const useGameStore = create<GameStoreState>((set) => ({
     addLog: (message) => set((state) => ({ log: [message, ...state.log].slice(0, 5) })),
     setLastAttack: (time) => set({ lastAttack: time }),
     setLastHit: (hit) => set({ lastHit: hit }),
+    setPlayerProfile: (name, avatarType) => set({ playerName: name, avatarType }),
 }));
