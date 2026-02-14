@@ -222,11 +222,75 @@ export const Cabin: React.FC<CabinProps> = ({ position, computerOn = false, comp
                 </mesh>
             </group>
 
+            {/* Roof staircase (second floor -> rooftop) */}
+            <group>
+                {Array.from({ length: 18 }).map((_, i) => (
+                    <mesh key={`roof-step-${i}`} position={[7.05, 6.82 + i * 0.23, -4.75 + i * 0.2]} castShadow receiveShadow>
+                        <boxGeometry args={[1.2, 0.07, 0.24]} />
+                        <meshStandardMaterial color="#9ca3af" roughness={0.74} metalness={0.22} />
+                    </mesh>
+                ))}
+                <mesh position={[7.55, 8.9, -3.0]} rotation={[-0.82, 0, 0]} castShadow>
+                    <boxGeometry args={[0.07, 0.07, 4.1]} />
+                    <meshStandardMaterial color={frameColor} roughness={0.4} metalness={0.62} />
+                </mesh>
+                <mesh position={[6.55, 8.9, -3.0]} rotation={[-0.82, 0, 0]} castShadow>
+                    <boxGeometry args={[0.07, 0.07, 4.1]} />
+                    <meshStandardMaterial color={frameColor} roughness={0.4} metalness={0.62} />
+                </mesh>
+            </group>
+
             {/* Modern guard rail */}
             <mesh position={[0, 7.35, 4.95]} castShadow>
                 <boxGeometry args={[11.5, 0.08, 0.08]} />
                 <meshStandardMaterial color={frameColor} roughness={0.4} metalness={0.6} />
             </mesh>
+
+            {/* Rooftop deck and guard rails */}
+            <mesh position={[0, 10.95, 0]} receiveShadow castShadow>
+                <boxGeometry args={[11.5, 0.18, 9.5]} />
+                <meshStandardMaterial color="#475569" roughness={0.78} metalness={0.22} />
+            </mesh>
+            <mesh position={[0, 11.5, 4.8]} castShadow>
+                <boxGeometry args={[11.4, 0.08, 0.08]} />
+                <meshStandardMaterial color={frameColor} roughness={0.4} metalness={0.6} />
+            </mesh>
+            <mesh position={[0, 11.5, -4.8]} castShadow>
+                <boxGeometry args={[11.4, 0.08, 0.08]} />
+                <meshStandardMaterial color={frameColor} roughness={0.4} metalness={0.6} />
+            </mesh>
+            <mesh position={[-5.65, 11.5, 0]} castShadow>
+                <boxGeometry args={[0.08, 0.08, 9.5]} />
+                <meshStandardMaterial color={frameColor} roughness={0.4} metalness={0.6} />
+            </mesh>
+            <mesh position={[5.65, 11.5, 0.9]} castShadow>
+                <boxGeometry args={[0.08, 0.08, 7.7]} />
+                <meshStandardMaterial color={frameColor} roughness={0.4} metalness={0.6} />
+            </mesh>
+
+            {/* Rooftop observatory binocular */}
+            <group position={[0, 11.12, 0]} rotation={[0, -Math.PI * 0.38, 0]}>
+                <mesh castShadow receiveShadow>
+                    <cylinderGeometry args={[0.38, 0.44, 0.22, 14]} />
+                    <meshStandardMaterial color="#374151" roughness={0.45} metalness={0.55} />
+                </mesh>
+                <mesh position={[0, 0.33, 0]} castShadow>
+                    <cylinderGeometry args={[0.1, 0.11, 0.52, 14]} />
+                    <meshStandardMaterial color="#4b5563" roughness={0.5} metalness={0.5} />
+                </mesh>
+                <mesh position={[0, 0.58, -0.18]} rotation={[0.26, 0, 0]} castShadow>
+                    <cylinderGeometry args={[0.16, 0.2, 0.9, 18]} />
+                    <meshStandardMaterial color="#6b7280" roughness={0.34} metalness={0.72} />
+                </mesh>
+                <mesh position={[0, 0.67, -0.63]} castShadow>
+                    <torusGeometry args={[0.11, 0.03, 12, 26]} />
+                    <meshStandardMaterial color="#111827" roughness={0.18} metalness={0.8} />
+                </mesh>
+                <mesh position={[0, 0.71, -0.73]}>
+                    <circleGeometry args={[0.07, 24]} />
+                    <meshStandardMaterial color="#93c5fd" emissive="#60a5fa" emissiveIntensity={0.55} roughness={0.2} metalness={0.6} />
+                </mesh>
+            </group>
         </group>
     );
 };

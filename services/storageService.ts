@@ -1,8 +1,9 @@
-import { PlayerProfile, SavedGameState } from '../types';
+import { PlayerProfile, SavedGameState, UserSettings } from '../types';
 
 const STORAGE_KEYS = {
     PLAYER_PROFILE: 'alive_player_profile',
-    GAME_STATE: 'alive_game_state'
+    GAME_STATE: 'alive_game_state',
+    USER_SETTINGS: 'alive_user_settings'
 };
 
 export const storageService = {
@@ -42,6 +43,24 @@ export const storageService = {
         }
     },
 
+    saveUserSettings: (settings: UserSettings): void => {
+        try {
+            localStorage.setItem(STORAGE_KEYS.USER_SETTINGS, JSON.stringify(settings));
+        } catch (error) {
+            console.error('Error saving user settings:', error);
+        }
+    },
+
+    loadUserSettings: (): UserSettings | null => {
+        try {
+            const data = localStorage.getItem(STORAGE_KEYS.USER_SETTINGS);
+            return data ? JSON.parse(data) : null;
+        } catch (error) {
+            console.error('Error loading user settings:', error);
+            return null;
+        }
+    },
+
     clearGameState: (): void => {
         try {
             localStorage.removeItem(STORAGE_KEYS.GAME_STATE);
@@ -54,6 +73,7 @@ export const storageService = {
         try {
             localStorage.removeItem(STORAGE_KEYS.PLAYER_PROFILE);
             localStorage.removeItem(STORAGE_KEYS.GAME_STATE);
+            localStorage.removeItem(STORAGE_KEYS.USER_SETTINGS);
         } catch (error) {
             console.error('Error clearing storage:', error);
         }

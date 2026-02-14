@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import * as THREE from 'three';
-import { AimState, ResourceType, Entity, Vector2, WeatherType, WorldPosition } from './types';
+import { AimState, ResourceType, Entity, Vector2, WeatherType, WorldPosition, TimeMode } from './types';
 import { generateAvatar } from './services/geminiService';
 import { audioService } from './services/audioService';
 import { HUD } from './components/ui/HUD';
@@ -37,21 +37,25 @@ type ArrowShotFx = {
 };
 
 export default function App() {
+  const [weather, setWeather] = useState<WeatherType>(() => storageService.loadUserSettings()?.weather ?? 'sunny');
+  const [timeMode, setTimeMode] = useState<TimeMode>(() => storageService.loadUserSettings()?.timeMode ?? 'auto');
+  const [soundVolume, setSoundVolume] = useState(() => storageService.loadUserSettings()?.soundVolume ?? audioService.getVolume());
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [isSitting, setIsSitting] = useState(false);
+  const [isObserving, setIsObserving] = useState(false);
   const [seatPromptDismissed, setSeatPromptDismissed] = useState(false);
+  const [observatoryPromptDismissed, setObservatoryPromptDismissed] = useState(false);
   const [activeSeatPosition, setActiveSeatPosition] = useState<WorldPosition | null>(null);
   const [activeSeatYaw, setActiveSeatYaw] = useState(Math.PI);
-  const [weather, setWeather] = useState<WeatherType>('sunny');
-  const [soundVolume, setSoundVolume] = useState(() => audioService.getVolume());
   const [arrowCount, setArrowCount] = useState(20);
   const [arrowShots, setArrowShots] = useState<ArrowShotFx[]>([]);
   const [bowEquipped, setBowEquipped] = useState(true);
   const [isAiming, setIsAiming] = useState(false);
   const [aimPower, setAimPower] = useState(0);
+  const [binocularZoom, setBinocularZoom] = useState(0.55);
   const [realMinutes, setRealMinutes] = useState(() => {
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
@@ -124,6 +128,17 @@ export default function App() {
     z: cabinPosition.z + 2.4
   }), [cabinPosition]);
 
+  const observatoryPosition = useMemo<WorldPosition>(() => ({
+    x: cabinPosition.x,
+    y: cabinPosition.y + 10.95,
+    z: cabinPosition.z
+  }), [cabinPosition]);
+
+  const observatoryYaw = useMemo(
+    () => Math.atan2(CENTER.x - observatoryPosition.x, CENTER.y - observatoryPosition.z),
+    [observatoryPosition]
+  );
+
   const deskInteraction = useMemo(() => {
     const lowerDist = Math.hypot(playerPosition.x - deskPosition.x, playerPosition.y - deskPosition.z);
     const upperDist = Math.hypot(playerPosition.x - upperDeskPosition.x, playerPosition.y - upperDeskPosition.z);
@@ -143,6 +158,11 @@ export default function App() {
   }, [playerPosition, deskPosition, upperDeskPosition, seatPosition, upperSeatPosition]);
 
   const shouldShowSitPrompt = !!deskInteraction && !isSitting && !seatPromptDismissed;
+  const nearObservatory = useMemo(
+    () => Math.hypot(playerPosition.x - observatoryPosition.x, playerPosition.y - observatoryPosition.z) < 2.25,
+    [playerPosition, observatoryPosition]
+  );
+  const shouldShowObservatoryPrompt = nearObservatory && !isObserving && !isSitting && !observatoryPromptDismissed;
   const nearbyCarcass = useMemo(() => {
     let candidate: Entity | null = null;
     let minDist = 3.2;
@@ -221,12 +241,16 @@ export default function App() {
   }, [deskInteraction]);
 
   useEffect(() => {
-    if (isSitting) {
+    if (!nearObservatory) setObservatoryPromptDismissed(false);
+  }, [nearObservatory]);
+
+  useEffect(() => {
+    if (isSitting || isObserving) {
       setIsAiming(false);
       drawStartRef.current = null;
       setAimPower(0);
     }
-  }, [isSitting]);
+  }, [isSitting, isObserving]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -245,6 +269,12 @@ export default function App() {
     const id = window.setInterval(updateClock, 60 * 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    audioService.init();
+    audioService.setVolume(soundVolume);
+    storageService.saveUserSettings({ weather, timeMode, soundVolume });
+  }, [weather, timeMode, soundVolume]);
 
   // 3. Auto-save every 10 seconds
   useEffect(() => {
@@ -287,6 +317,13 @@ export default function App() {
 
     const x = CENTER.x + Math.cos(angle) * radius;
     const y = CENTER.y + Math.sin(angle) * radius;
+    const cabinX = WORLD_SIZE / 2 + 100;
+    const cabinZ = WORLD_SIZE / 2 - 80;
+
+    // Never spawn world entities inside the cabin footprint.
+    if (Math.abs(x - cabinX) < 9 && Math.abs(y - cabinZ) < 9) {
+      return createEntity(isResource, attempts + 1);
+    }
 
     // Check Lake Collision
     for (const lake of LAKES) {
@@ -345,11 +382,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const resources = Array.from({ length: RESOURCE_LIMIT }, () => createEntity(true));
+    const resources = Array.from({ length: RESOURCE_LIMIT }, () => createEntity(true)).filter(Boolean);
     const animals = Array.from({ length: ANIMAL_LIMIT }, () => createAnimalEntity());
-    const decor = Array.from({ length: DECOR_LIMIT }, () => createEntity(false));
-    setEntities([...resources, ...animals, ...decor]);
+    const decor = Array.from({ length: DECOR_LIMIT }, () => createEntity(false)).filter(Boolean);
+    setEntities([...resources, ...animals, ...decor].filter(Boolean));
   }, [createEntity, createAnimalEntity, setEntities]);
+
+  useEffect(() => {
+    if (!entities.length) return;
+    const cabinX = WORLD_SIZE / 2 + 100;
+    const cabinZ = WORLD_SIZE / 2 - 80;
+    const nextEntities = entities.filter((ent) => {
+      if (ent.type !== ResourceType.STONE) return true;
+      return !(Math.abs(ent.pos.x - cabinX) < 9 && Math.abs(ent.pos.y - cabinZ) < 9);
+    });
+    if (nextEntities.length !== entities.length) {
+      setEntities(nextEntities);
+    }
+  }, [entities, setEntities]);
 
   useEffect(() => {
     const tick = window.setInterval(() => {
@@ -361,9 +411,9 @@ export default function App() {
           if (!isAnimalEntity(ent)) return ent;
 
           const distToPlayer = Math.hypot(ent.pos.x - player.x, ent.pos.y - player.y);
-          const fleeing = distToPlayer < 34;
-          const baseSpeed = ent.variant === 11 ? 2.35 : 1.95;
-          const speed = baseSpeed * (fleeing ? 2.1 : 1);
+          const fleeing = distToPlayer < 26;
+          const baseSpeed = ent.variant === 11 ? 1.35 : 1.15;
+          const speed = baseSpeed * (fleeing ? 1.45 : 1);
           const rot = ent.rotation || 0;
           const moveRot = fleeing
             ? Math.atan2(ent.pos.y - player.y, ent.pos.x - player.x)
@@ -564,6 +614,29 @@ export default function App() {
     addLog('Você levantou da cadeira.');
   }, [addLog]);
 
+  const handleObservatoryAccept = useCallback(() => {
+    setIsObserving(true);
+    setObservatoryPromptDismissed(false);
+    setPlayerPosition({ x: observatoryPosition.x, y: observatoryPosition.z });
+    playerPosRef.current = { x: observatoryPosition.x, y: observatoryPosition.z };
+    setPlayerVelocity(new THREE.Vector2(0, 0));
+    setBinocularZoom(0.55);
+    keysPressed.current = {};
+    addLog('Observatório ativado. Binóculo pronto.');
+  }, [observatoryPosition, addLog]);
+
+  const handleObservatoryDecline = useCallback(() => {
+    setObservatoryPromptDismissed(true);
+    addLog('Você ignorou o observatório.');
+  }, [addLog]);
+
+  const handleObservatoryExit = useCallback(() => {
+    setIsObserving(false);
+    setObservatoryPromptDismissed(true);
+    keysPressed.current = {};
+    addLog('Observatório desativado.');
+  }, [addLog]);
+
   // Double-tap state
   const lastTap = useRef<{ key: string, time: number }>({ key: '', time: 0 });
   const isAutoRunning = useRef(false);
@@ -574,9 +647,12 @@ export default function App() {
     if (now - lastArrowShot.current < 240) return;
     lastArrowShot.current = now;
 
-    if (!bowEquipped) setBowEquipped(true);
+    if (!bowEquipped) {
+      addLog('Rifle desativado. Ative para atirar.');
+      return;
+    }
     if (arrowCount <= 0) {
-      addLog('Sem flechas. Fabrique mais.');
+      addLog('Sem munição. Fabrique mais.');
       return;
     }
     if (!aimRef.current) {
@@ -596,9 +672,9 @@ export default function App() {
       aimRef.current.dir.z
     ).normalize();
 
-    const shotRange = 140;
-    const damage = 1 + Math.round(3 * THREE.MathUtils.clamp(power, 0, 1));
-    const shotSpeed = 120 + power * 90;
+    const shotRange = 220;
+    const damage = 8;
+    const shotSpeed = 220 + power * 120;
 
     let bestTarget: Entity | null = null;
     let bestT = shotRange;
@@ -632,7 +708,7 @@ export default function App() {
           hitDistance: shotRange * (0.78 + power * 0.2)
         }
       ]));
-      addLog('Você atirou e errou.');
+      addLog('Tiro de rifle falhou.');
       return;
     }
 
@@ -643,13 +719,13 @@ export default function App() {
     let finalEntities = currentEntities;
 
     if (newHealth <= 0) {
-      addLog('Acerto fatal. Animal caiu. Pegue a carne [G].');
+      addLog('Tiro letal. Animal caiu. Pegue a carne [G].');
       finalEntities = [
         ...currentEntities.filter(e => e.id !== target.id),
         spawnCarcassFromAnimal(target)
       ];
     } else {
-      addLog(`Acerto no animal (${newHealth} HP).`);
+      addLog(`Tiro no alvo (${newHealth} HP).`);
       finalEntities = currentEntities.map(e => e.id === target.id ? { ...e, health: newHealth } : e);
     }
 
@@ -687,7 +763,7 @@ export default function App() {
   const handleCraftArrows = useCallback(() => {
     const wood = inventory.find(i => i.type === ResourceType.WOOD)?.count || 0;
     if (wood < 1) {
-      addLog('Precisa de 1 madeira para fabricar flechas.');
+      addLog('Precisa de 1 madeira para fabricar munição.');
       return;
     }
     const newInventory = inventory.map(i => {
@@ -696,7 +772,7 @@ export default function App() {
     });
     setInventory(newInventory);
     setArrowCount(v => v + 5);
-    addLog('+5 flechas fabricadas.');
+    addLog('+5 munições fabricadas.');
   }, [inventory, setInventory, addLog]);
 
   const handleCollectCarcass = useCallback(() => {
@@ -760,6 +836,41 @@ export default function App() {
         handleStandUp();
         return;
       }
+      if (isObserving && (e.code === 'KeyX' || e.code === 'Escape')) {
+        e.preventDefault();
+        handleObservatoryExit();
+        return;
+      }
+      if (isObserving && (e.code === 'Equal' || e.code === 'NumpadAdd')) {
+        e.preventDefault();
+        setBinocularZoom((z) => Math.min(1, z + 0.08));
+        return;
+      }
+      if (isObserving && (e.code === 'Minus' || e.code === 'NumpadSubtract')) {
+        e.preventDefault();
+        setBinocularZoom((z) => Math.max(0, z - 0.08));
+        return;
+      }
+      if (!isObserving && isAiming && (e.code === 'Equal' || e.code === 'NumpadAdd')) {
+        e.preventDefault();
+        setBinocularZoom((z) => Math.min(1, z + 0.08));
+        return;
+      }
+      if (!isObserving && isAiming && (e.code === 'Minus' || e.code === 'NumpadSubtract')) {
+        e.preventDefault();
+        setBinocularZoom((z) => Math.max(0, z - 0.08));
+        return;
+      }
+      if (shouldShowObservatoryPrompt && (e.code === 'KeyE' || e.code === 'Enter')) {
+        e.preventDefault();
+        handleObservatoryAccept();
+        return;
+      }
+      if (shouldShowObservatoryPrompt && (e.code === 'KeyN' || e.code === 'Escape')) {
+        e.preventDefault();
+        handleObservatoryDecline();
+        return;
+      }
 
       audioService.init();
       // Register both for maximum compatibility
@@ -807,10 +918,6 @@ export default function App() {
       if (e.code === 'KeyC') {
         handleEatFood();
       }
-      if (e.code === 'KeyB') {
-        setBowEquipped(v => !v);
-        addLog(!bowEquipped ? 'Arco equipado.' : 'Arco guardado.');
-      }
       if (e.code === 'KeyG') {
         handleCollectCarcass();
       }
@@ -847,11 +954,22 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleAttack, handleShootArrow, handleEatFood, cameraMode, setCameraMode, shouldShowSitPrompt, isSitting, handleSitAccept, handleSitDecline, handleStandUp, addLog, aimPower, isAiming, bowEquipped, handleCollectCarcass]);
+  }, [handleAttack, handleShootArrow, handleEatFood, cameraMode, setCameraMode, shouldShowSitPrompt, shouldShowObservatoryPrompt, isSitting, isObserving, handleSitAccept, handleSitDecline, handleStandUp, handleObservatoryAccept, handleObservatoryDecline, handleObservatoryExit, addLog, aimPower, isAiming, bowEquipped, handleCollectCarcass]);
+
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      if (!isObserving && !isAiming) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
+      setBinocularZoom((z) => Math.max(0, Math.min(1, z + delta)));
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, [isObserving, isAiming]);
 
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
-      if (isSitting || !bowEquipped) return;
+      if (isSitting || isObserving || !bowEquipped) return;
       if (e.button === 2) {
         e.preventDefault();
         setIsAiming(true);
@@ -867,6 +985,7 @@ export default function App() {
 
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
+        e.preventDefault();
         setIsAiming(false);
         drawStartRef.current = null;
         setAimPower(0);
@@ -874,7 +993,7 @@ export default function App() {
     };
 
     const onContext = (e: MouseEvent) => {
-      if (bowEquipped && !isSitting) e.preventDefault();
+      if (!isSitting && !isObserving && bowEquipped) e.preventDefault();
     };
 
     window.addEventListener('mousedown', onMouseDown);
@@ -885,7 +1004,7 @@ export default function App() {
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('contextmenu', onContext);
     };
-  }, [bowEquipped, isSitting, handleShootArrow]);
+  }, [isSitting, isObserving, bowEquipped, handleShootArrow]);
 
   const onFootstep = useCallback((isWet: boolean) => {
     audioService.playFootstep(isWet);
@@ -918,10 +1037,16 @@ export default function App() {
             islandRadius={ISLAND_RADIUS}
             velocity={playerVelocity}
             weather={weather}
+            timeMode={timeMode}
             realMinutes={realMinutes}
             isSitting={isSitting}
+            isObserving={isObserving}
+            isRifleAiming={!isObserving && !isSitting && bowEquipped && isAiming}
+            binocularZoom={binocularZoom}
             seatPosition={activeSeatPosition ?? seatPosition}
             seatYaw={activeSeatYaw}
+            observatoryPosition={observatoryPosition}
+            observatoryYaw={observatoryYaw}
             computerOn={isSitting}
             computerScreenUrl={deskMirrorUrl}
             onUpdatePosition={handleUpdatePosition}
@@ -931,7 +1056,7 @@ export default function App() {
             keysPressed={keysPressed}
           />
 
-          {!isSitting && (
+          {!isSitting && !isObserving && (
             <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between">
               <div className="flex justify-between items-start pointer-events-auto">
                 <div className="flex flex-col gap-4">
@@ -952,11 +1077,24 @@ export default function App() {
                       <i className="fas fa-hammer mr-2"></i> Construir (5W, 3S)
                     </button>
                     <button onClick={handleCraftArrows} className="px-6 py-3 bg-amber-600/80 hover:bg-amber-500 rounded-2xl border border-white/20 text-white mono text-xs font-bold transition-all hover:scale-105 pointer-events-auto shadow-lg shadow-amber-900/20">
-                      <i className="fas fa-bullseye mr-2"></i> Flechas +5 (1W)
+                      <i className="fas fa-bullseye mr-2"></i> Munição +5 (1W)
                     </button>
-                    <button onClick={() => setBowEquipped(v => !v)} className={`px-6 py-3 rounded-2xl border border-white/20 text-white mono text-xs font-bold transition-all hover:scale-105 pointer-events-auto shadow-lg ${bowEquipped ? 'bg-indigo-600/80 hover:bg-indigo-500 shadow-indigo-900/20' : 'bg-zinc-700/80 hover:bg-zinc-600 shadow-zinc-900/20'}`}>
-                      <i className="fas fa-crosshairs mr-2"></i> {bowEquipped ? 'Arco Equipado [B]' : 'Equipar Arco [B]'}
-                    </button>
+                    <div className="px-3 py-2 rounded-2xl border border-white/25 bg-black/25 backdrop-blur-md shadow-lg flex items-center gap-2 pointer-events-auto">
+                      <span className={`w-2 h-2 rounded-full ${bowEquipped ? 'bg-emerald-300' : 'bg-zinc-400'}`} />
+                      <span className="text-[10px] mono font-black text-white/85 mr-1">{bowEquipped ? 'RIFLE ON' : 'RIFLE OFF'}</span>
+                      <button
+                        onClick={() => { setBowEquipped(true); setIsAiming(true); drawStartRef.current = Date.now(); addLog('Rifle ativo.'); }}
+                        className={`px-3 py-2 rounded-xl border text-[10px] mono font-black transition-all ${bowEquipped ? 'bg-emerald-500/90 border-emerald-200/50 text-black' : 'bg-indigo-600/85 border-white/20 text-white hover:bg-indigo-500'}`}
+                      >
+                        <i className="fas fa-crosshairs mr-1.5"></i> Ativar
+                      </button>
+                      <button
+                        onClick={() => { setBowEquipped(false); setIsAiming(false); drawStartRef.current = null; setAimPower(0); addLog('Rifle desativado.'); }}
+                        className={`px-3 py-2 rounded-xl border text-[10px] mono font-black transition-all ${!bowEquipped ? 'bg-zinc-300 border-zinc-100/70 text-zinc-900' : 'bg-zinc-700/90 border-white/20 text-white hover:bg-zinc-600'}`}
+                      >
+                        <i className="fas fa-ban mr-1.5"></i> Desativar
+                      </button>
+                    </div>
                     <button onClick={handleEatFood} className="px-6 py-3 bg-rose-600/80 hover:bg-rose-500 rounded-2xl border border-white/20 text-white mono text-xs font-bold transition-all hover:scale-105 pointer-events-auto shadow-lg shadow-rose-900/20">
                       <i className="fas fa-drumstick-bite mr-2"></i> Comer [C]
                     </button>
@@ -999,26 +1137,27 @@ export default function App() {
                       <span className="text-[10px] mt-2 font-black mono text-zinc-900">{arrowCount}</span>
                     </div>
                   </div>
-                  <div className="text-[10px] mono font-bold text-zinc-700">1P: [F] atirar | 2P/3P: [Botão Direito] mirar + [Botão Esquerdo] atirar | [G] pegar caça</div>
+                  <div className="text-[10px] mono font-bold text-zinc-700">Rifle: [Botão Direito] mira 1P + [Botão Esquerdo]/[F] atirar | Zoom: roda/+/- | [G] pegar caça</div>
                 </div>
               </div>
             </div>
           )}
 
-          {!isSitting && bowEquipped && isAiming && (
+          {!isSitting && !isObserving && bowEquipped && isAiming && (
             <div className="absolute inset-0 z-30 pointer-events-none flex items-center justify-center">
-              <div className="relative w-8 h-8">
-                <div className="absolute inset-0 border border-white/80 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.55)]" />
-                <div className="absolute left-1/2 top-0 h-8 w-[1px] -translate-x-1/2 bg-white/80" />
-                <div className="absolute top-1/2 left-0 w-8 h-[1px] -translate-y-1/2 bg-white/80" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_0,transparent_24%,rgba(0,0,0,0.56)_40%)]" />
+              <div className="relative w-10 h-10">
+                <div className="absolute inset-0 border border-white/80 rounded-full shadow-[0_0_14px_rgba(255,255,255,0.45)]" />
+                <div className="absolute left-1/2 top-0 h-10 w-[1px] -translate-x-1/2 bg-white/80" />
+                <div className="absolute top-1/2 left-0 w-10 h-[1px] -translate-y-1/2 bg-white/80" />
               </div>
               <div className="absolute bottom-20 px-3 py-1 rounded-xl bg-black/40 text-white/90 text-[10px] mono">
-                Força do tiro: {Math.round(aimPower * 100)}%
+                Mira de rifle 1P ativa | Zoom {Math.round(100 + binocularZoom * 350)}%
               </div>
             </div>
           )}
 
-          {!isSitting && cameraMode === '1P' && (
+          {!isSitting && !isObserving && cameraMode === '1P' && (
             <div className="absolute inset-0 z-30 pointer-events-none flex items-center justify-center">
               <div className="w-1.5 h-1.5 rounded-full bg-white/95 shadow-[0_0_8px_rgba(255,255,255,0.85)]" />
             </div>
@@ -1059,6 +1198,26 @@ export default function App() {
             </div>
           )}
 
+          {shouldShowObservatoryPrompt && (
+            <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
+              <div className="bg-zinc-900/80 text-white border border-white/20 rounded-2xl px-5 py-4 backdrop-blur-xl shadow-2xl flex items-center gap-4">
+                <span className="text-sm font-bold mono">Ativar observatório?</span>
+                <button
+                  onClick={handleObservatoryAccept}
+                  className="px-4 py-2 text-xs font-black mono rounded-xl bg-cyan-400 text-black hover:bg-cyan-300 transition-all"
+                >
+                  Sim [E]
+                </button>
+                <button
+                  onClick={handleObservatoryDecline}
+                  className="px-4 py-2 text-xs font-black mono rounded-xl bg-white/10 text-white hover:bg-white/20 transition-all"
+                >
+                  Não [N]
+                </button>
+              </div>
+            </div>
+          )}
+
           {!isSitting && !shouldShowSitPrompt && nearbyCarcass && (
             <div className="absolute top-8 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
               <div className="bg-zinc-900/80 text-white border border-white/20 rounded-2xl px-4 py-3 backdrop-blur-xl shadow-2xl">
@@ -1073,6 +1232,22 @@ export default function App() {
                 [V] câmera | [X] levantar
               </div>
             </div>
+          )}
+
+          {isObserving && (
+            <>
+              <div className="absolute inset-0 z-30 pointer-events-none">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_50%,transparent_0,transparent_21%,rgba(0,0,0,0.52)_31%),radial-gradient(circle_at_65%_50%,transparent_0,transparent_21%,rgba(0,0,0,0.52)_31%)]" />
+                <div className="absolute inset-0 bg-black/12" />
+                <div className="absolute left-1/2 top-1/2 w-[1px] h-8 -translate-x-1/2 -translate-y-1/2 bg-white/80" />
+                <div className="absolute left-1/2 top-1/2 w-8 h-[1px] -translate-x-1/2 -translate-y-1/2 bg-white/80" />
+              </div>
+              <div className="absolute bottom-6 right-6 z-30 pointer-events-none">
+                <div className="bg-black/45 text-white/90 border border-white/15 rounded-lg px-3 py-1.5 backdrop-blur-sm text-[10px] mono tracking-wide">
+                  Binóculo ativo | Zoom {Math.round(100 + binocularZoom * 500)}% | [+/-] ou roda do mouse | [X] sair
+                </div>
+              </div>
+            </>
           )}
 
           <div className="absolute top-6 right-6 z-40 pointer-events-auto">
@@ -1117,8 +1292,63 @@ export default function App() {
                 </button>
               ))}
               </div>
+              <div className="flex items-center gap-2 px-2">
+                <span className="text-[10px] font-black mono text-white/80">CICLO</span>
+                {[
+                  { id: 'auto', label: 'Auto' },
+                  { id: 'day', label: 'Dia' },
+                  { id: 'night', label: 'Noite' },
+                ].map((mode) => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setTimeMode(mode.id as TimeMode)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black mono transition-all ${timeMode === mode.id
+                      ? 'bg-emerald-500 text-black'
+                      : 'bg-white/10 text-white hover:bg-white/20'
+                      }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          {!isSitting && !isObserving && (
+            <div className="absolute bottom-6 left-6 z-40 pointer-events-auto">
+              <div className="px-3 py-3 rounded-2xl border border-white/20 bg-black/30 backdrop-blur-md shadow-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${bowEquipped ? 'bg-emerald-300' : 'bg-zinc-400'}`} />
+                  <span className="text-[10px] mono font-black text-white/85">CONTROLE DO RIFLE</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => {
+                      setBowEquipped(true);
+                      setIsAiming(true);
+                      drawStartRef.current = Date.now();
+                      addLog('Rifle ativo.');
+                    }}
+                    className={`px-4 py-2 rounded-xl border mono text-xs font-bold transition-all ${bowEquipped ? 'bg-emerald-500/90 border-emerald-200/60 text-black' : 'border-white/20 text-white bg-indigo-600/85 hover:bg-indigo-500'}`}
+                  >
+                    <i className="fas fa-crosshairs mr-2"></i> Ativar Rifle
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBowEquipped(false);
+                      setIsAiming(false);
+                      drawStartRef.current = null;
+                      setAimPower(0);
+                      addLog('Rifle desativado.');
+                    }}
+                    className={`px-4 py-2 rounded-xl border mono text-xs font-bold transition-all ${!bowEquipped ? 'bg-zinc-300 border-zinc-100/70 text-zinc-900' : 'border-white/20 text-white bg-zinc-700/85 hover:bg-zinc-600'}`}
+                  >
+                    <i className="fas fa-ban mr-2"></i> Desativar Rifle
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

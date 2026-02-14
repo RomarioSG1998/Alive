@@ -53,6 +53,7 @@ export interface GameState {
 
 export type CameraMode = '1P' | '2P' | '3P';
 export type WeatherType = 'sunny' | 'cloudy' | 'drizzle' | 'storm';
+export type TimeMode = 'auto' | 'day' | 'night';
 
 export type AvatarType = 'gemini' | 'classic' | 'blocky' | 'robot';
 
@@ -69,4 +70,10 @@ export interface SavedGameState {
     hunger: number;
     structures: Entity[];
     lastSaved: number;
+}
+
+export interface UserSettings {
+    weather: WeatherType;
+    timeMode: TimeMode;
+    soundVolume: number;
 }

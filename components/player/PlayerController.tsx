@@ -24,8 +24,13 @@ interface PlayerControllerProps {
     lastAttack?: number;
     avatarType?: AvatarType;
     isSitting: boolean;
+    isObserving: boolean;
+    isRifleAiming: boolean;
+    binocularZoom: number;
     seatPosition: WorldPosition;
     seatYaw: number;
+    observatoryPosition: WorldPosition;
+    observatoryYaw: number;
     onAimUpdate?: (aim: AimState) => void;
 }
 
@@ -41,8 +46,13 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     lastAttack,
     avatarType = 'gemini',
     isSitting,
+    isObserving,
+    isRifleAiming,
+    binocularZoom,
     seatPosition,
     seatYaw,
+    observatoryPosition,
+    observatoryYaw,
     onAimUpdate
 }) => {
     const { camera } = useThree();
@@ -63,6 +73,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     }, [initialPos, worldSize, islandRadius]);
 
     const cameraRotation = useRef({ x: 0.3, y: Math.PI }); // x=pitch, y=yaw
+    const effectiveMode: CameraMode = isRifleAiming ? '1P' : mode;
 
     const getCabinSupportHeight = (x: number, z: number, currentY: number): number | null => {
         const cabinX = worldSize / 2 + 100;
@@ -73,6 +84,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const localZ = z - cabinZ;
 
         const secondFloorY = baseY + 6.72;
+        const roofY = baseY + 10.92;
         const stairBottomY = baseY + 0.12;
 
         const stairStartZ = 4.2;
@@ -94,12 +106,24 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const upperY = canUseUpperFloor && (insideUpperFloor || onUpperLanding) ? secondFloorY : -Infinity;
 
         const supportY = Math.max(stairY, upperY);
-        return Number.isFinite(supportY) ? supportY : null;
+        const onRoofStair = localX > 5.95 && localX < 8.05 && localZ > -5.1 && localZ < -1.15;
+        let roofStairY = -Infinity;
+        if (onRoofStair) {
+            const roofProgress = THREE.MathUtils.clamp((localZ + 5.1) / 3.95, 0, 1);
+            roofStairY = THREE.MathUtils.lerp(secondFloorY + 0.05, roofY, roofProgress);
+        }
+
+        const onRoofDeck = Math.abs(localX) < 5.6 && Math.abs(localZ) < 4.7;
+        const canUseRoof = currentY > secondFloorY + 1.1 || onRoofStair;
+        const roofSupportY = canUseRoof && onRoofDeck ? roofY : -Infinity;
+
+        const finalSupportY = Math.max(supportY, roofStairY, roofSupportY);
+        return Number.isFinite(finalSupportY) ? finalSupportY : null;
     };
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
-            if (document.pointerLockElement === document.body) {
+        if (document.pointerLockElement === document.body) {
                 cameraRotation.current.y -= e.movementX * 0.003;
                 cameraRotation.current.x -= e.movementY * 0.004;
                 // Constraints to prevent looking at feet or under character
@@ -124,7 +148,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const d = Math.min(delta, 0.1);
         const pPos = playerRef.current.position;
         const lakeSurfaceY = -0.15;
-        const isRunning = !isSitting && (
+        const isRunning = !isSitting && !isObserving && (
             keys.current['ShiftLeft'] ||
             keys.current['ShiftRight'] ||
             keys.current['ControlLeft'] ||
@@ -153,6 +177,12 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
             pPos.z = THREE.MathUtils.lerp(pPos.z, seatPosition.z, 0.35);
             pPos.y = THREE.MathUtils.lerp(pPos.y, seatPosition.y, 0.35);
             playerRef.current.rotation.y = lerpAngle(playerRef.current.rotation.y, seatYaw, 0.2);
+        } else if (isObserving) {
+            internalVel.current.set(0, 0);
+            pPos.x = THREE.MathUtils.lerp(pPos.x, observatoryPosition.x, 0.35);
+            pPos.z = THREE.MathUtils.lerp(pPos.z, observatoryPosition.z, 0.35);
+            pPos.y = THREE.MathUtils.lerp(pPos.y, observatoryPosition.y, 0.35);
+            playerRef.current.rotation.y = lerpAngle(playerRef.current.rotation.y, observatoryYaw, 0.2);
         } else {
             // Speed Tuning: Extreme for exploration, but with inertia
             // Walk: 18 units/sec
@@ -265,9 +295,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
             // Check if player is potentially colliding with the cabin rectangle
             if (Math.abs(relX) < cW + pR && Math.abs(relZ) < cD + pR) {
-                const inFrontDoorway = Math.abs(relX) < 2.0 && relZ > cD - 1 && relZ < cD + 2;
-                const inStairOpening = relX > cW - 1.0 && relX < cW + 2.3 && relZ > -5.8 && relZ < -3.6;
-                const inDoorway = inFrontDoorway || inStairOpening;
+                const inFrontDoorway = Math.abs(relX) < 1.6 && relZ > cD - 0.6 && relZ < cD + 1.2;
+                const inStairOpening = relX > cW - 0.35 && relX < cW + 1.35 && relZ > -5.45 && relZ < -3.95;
+                const inRoofStairPassage = relX > cW - 0.15 && relX < cW + 1.6 && relZ > -5.2 && relZ < -1.1;
+                const inDoorway = inFrontDoorway || inStairOpening || inRoofStairPassage;
 
                 if (!inDoorway) {
                     const wasInside = Math.abs(prevRelX) < cW && Math.abs(prevRelZ) < cD;
@@ -341,9 +372,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
         const animFreq = Math.sqrt(speed) * 2.5;
 
-        if (isSitting) {
+        if (isSitting || isObserving) {
             walkTime.current = 0;
-        } else if (mode === '1P') {
+        } else if (effectiveMode === '1P') {
             // In 1P, character body ALWAYS matches camera yaw
             playerRef.current.rotation.y = cameraRotation.current.y;
             walkTime.current += d * animFreq * (inWater ? 0.6 : 1.0);
@@ -369,10 +400,22 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const rotY = cameraRotation.current.y;
         const rotX = cameraRotation.current.x;
 
-        if (mode === '3P' || mode === '2P') {
-            let camDist = mode === '3P' ? 22 : 10;
+        if (isObserving) {
+            const eyeHeight = 1.64;
+            const camDirX = -Math.sin(rotY);
+            const camDirZ = -Math.cos(rotY);
+            camTarget.set(pPos.x + camDirX * 0.24, pPos.y + eyeHeight, pPos.z + camDirZ * 0.24);
+            const viewDir = new THREE.Vector3(
+                -Math.sin(rotY) * Math.cos(rotX),
+                Math.sin(rotX),
+                -Math.cos(rotY) * Math.cos(rotX)
+            );
+            lookTarget.copy(camTarget).add(viewDir.multiplyScalar(24));
+            camera.position.lerp(camTarget, 0.28);
+        } else if (effectiveMode === '3P' || effectiveMode === '2P') {
+            let camDist = effectiveMode === '3P' ? 22 : 10;
             const eyeLevel = isSitting ? 1.2 : 1.76;
-            const heightOffset = isSitting ? (mode === '3P' ? 4 : 2) : (mode === '3P' ? 6 : 3);
+            const heightOffset = isSitting ? (effectiveMode === '3P' ? 4 : 2) : (effectiveMode === '3P' ? 6 : 3);
 
             // Calculate "Ideal" target first
             let hDist = camDist * Math.cos(rotX);
@@ -404,9 +447,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
             camTarget.set(finalX, finalY, finalZ);
             lookTarget.set(pPos.x, pPos.y + eyeLevel, pPos.z); // Focus strictly on eye level
 
-            camera.position.lerp(camTarget, mode === '2P' ? 0.2 : 0.25); // Faster lerp for better responsiveness
+            camera.position.lerp(camTarget, effectiveMode === '2P' ? 0.2 : 0.25); // Faster lerp for better responsiveness
 
-        } else if (mode === '1P') {
+        } else if (effectiveMode === '1P') {
             const bobY = isSitting ? 0 : Math.sin(walkTime.current) * (speed * 0.0006);
             const eyeHeight = isSitting ? 1.2 : 1.76;
 
@@ -432,8 +475,18 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const currentLook = new THREE.Vector3();
         camera.getWorldDirection(currentLook);
 
-        const lookAlpha = mode === '1P' ? 0.4 : 0.12;
+        const lookAlpha = isObserving ? 0.32 : effectiveMode === '1P' ? 0.4 : 0.12;
         camera.lookAt(camera.position.clone().add(currentLook.lerp(targetDir, lookAlpha)));
+
+        const targetFov = isObserving
+            ? THREE.MathUtils.lerp(40, 4, THREE.MathUtils.clamp(binocularZoom, 0, 1))
+            : isRifleAiming
+                ? THREE.MathUtils.lerp(34, 8, THREE.MathUtils.clamp(binocularZoom, 0, 1))
+                : 75;
+        if (Math.abs(camera.fov - targetFov) > 0.1) {
+            camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 0.18);
+            camera.updateProjectionMatrix();
+        }
 
         const aimDir = new THREE.Vector3();
         camera.getWorldDirection(aimDir);
@@ -461,7 +514,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     return (
         <>
             <group ref={playerRef}>
-                {mode !== '1P' && (
+                {effectiveMode !== '1P' && !isObserving && (
                     <Avatar
                         velocity={internalVel.current}
                         isWet={renderDistFromCenter > islandRadius || renderInLakeWater}

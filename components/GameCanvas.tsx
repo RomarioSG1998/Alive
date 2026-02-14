@@ -32,10 +32,16 @@ interface GameWorldProps {
   islandRadius: number;
   velocity: THREE.Vector2;
   weather: WeatherType;
+  timeMode: 'auto' | 'day' | 'night';
   realMinutes: number;
   isSitting: boolean;
+  isObserving: boolean;
+  isRifleAiming: boolean;
+  binocularZoom: number;
   seatPosition: WorldPosition;
   seatYaw: number;
+  observatoryPosition: WorldPosition;
+  observatoryYaw: number;
   computerOn: boolean;
   computerScreenUrl: string;
   arrowShots: ArrowShotFx[];
@@ -109,6 +115,55 @@ const CartoonClouds: React.FC<{ center: number; count: number; opacityMult: numb
         </group>
       ))}
     </group>
+  );
+};
+
+const StarField: React.FC<{ center: number; intensity: number }> = ({ center, intensity }) => {
+  const pointsRef = React.useRef<THREE.Points>(null);
+  const starData = React.useMemo(() => {
+    const count = 1400;
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const radius = 1200;
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(THREE.MathUtils.randFloat(0.03, 1));
+      const r = radius + Math.random() * 260;
+      const x = center + r * Math.sin(phi) * Math.cos(theta);
+      const y = 180 + r * Math.cos(phi);
+      const z = center + r * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = z;
+      const hue = 0.55 + Math.random() * 0.1;
+      const sat = 0.1 + Math.random() * 0.2;
+      const light = 0.75 + Math.random() * 0.25;
+      const c = new THREE.Color().setHSL(hue, sat, light);
+      colors[i * 3] = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
+    }
+    return { positions, colors };
+  }, [center]);
+
+  useFrame((state) => {
+    if (!pointsRef.current) return;
+    pointsRef.current.material.opacity = THREE.MathUtils.lerp(
+      pointsRef.current.material.opacity,
+      THREE.MathUtils.clamp(intensity, 0, 1) * 0.9,
+      0.08
+    );
+    pointsRef.current.rotation.y = state.clock.elapsedTime * 0.004;
+  });
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={starData.positions.length / 3} array={starData.positions} itemSize={3} />
+        <bufferAttribute attach="attributes-color" count={starData.colors.length / 3} array={starData.colors} itemSize={3} />
+      </bufferGeometry>
+      <pointsMaterial size={1.25} vertexColors transparent opacity={0} sizeAttenuation depthWrite={false} />
+    </points>
   );
 };
 
@@ -288,10 +343,16 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
   keysPressed,
   velocity,
   weather,
+  timeMode,
   realMinutes,
   isSitting,
+  isObserving,
+  isRifleAiming,
+  binocularZoom,
   seatPosition,
   seatYaw,
+  observatoryPosition,
+  observatoryYaw,
   computerOn,
   computerScreenUrl,
   arrowShots,
@@ -305,8 +366,22 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
     const t = (Math.cos(((h - 12) / 24) * Math.PI * 2) + 1) * 0.5;
     return THREE.MathUtils.clamp(t, 0, 1);
   }, [realMinutes]);
-  const dayLight = THREE.MathUtils.smoothstep(dayPhase, 0.15, 0.9);
+  const automaticDayLight = THREE.MathUtils.smoothstep(dayPhase, 0.15, 0.9);
+  const dayLight =
+    timeMode === 'day'
+      ? 1
+      : timeMode === 'night'
+        ? 0
+        : automaticDayLight;
   const isNight = dayLight < 0.22;
+  const nightBlend = 1 - dayLight;
+  const sunCycle = React.useMemo(() => {
+    const t = (realMinutes / 1440) * Math.PI * 2;
+    const sunX = Math.sin(t) * 320;
+    const sunY = Math.max(-36, Math.cos(t) * 180);
+    const sunZ = Math.cos(t) * 180;
+    return [sunX, sunY, sunZ] as [number, number, number];
+  }, [realMinutes]);
 
   const weatherCfg = React.useMemo(() => ({
     sunny: {
@@ -367,8 +442,9 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
 
   const ambientIntensity = weatherCfg.ambient * (0.25 + dayLight * 0.95);
   const hemiIntensity = weatherCfg.hemi * (0.22 + dayLight * 0.92);
-  const dirIntensity = weatherCfg.dir * (0.15 + dayLight * 1.0);
-  const exposure = (weather === 'storm' ? 0.92 : weather === 'drizzle' ? 0.98 : 1.08) * (0.55 + dayLight * 0.65);
+  const dirIntensity = weatherCfg.dir * (0.12 + dayLight * 1.02);
+  const moonLightIntensity = (0.22 + weatherCfg.hemi * 0.5) * nightBlend;
+  const exposure = (weather === 'storm' ? 0.92 : weather === 'drizzle' ? 0.98 : 1.08) * (0.52 + dayLight * 0.72);
 
   return (
     <div className="absolute inset-0 w-full h-full bg-[#bae6fd]">
@@ -397,19 +473,33 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           lastAttack={lastAttack}
           avatarType={useGameStore.getState().avatarType}
           isSitting={isSitting}
+          isObserving={isObserving}
+          isRifleAiming={isRifleAiming}
+          binocularZoom={binocularZoom}
           seatPosition={seatPosition}
           seatYaw={seatYaw}
+          observatoryPosition={observatoryPosition}
+          observatoryYaw={observatoryYaw}
           onAimUpdate={onAimUpdate}
         />
 
         {/* Turn on the SUN */}
         <Sky
-          sunPosition={[100, 40, 20]}
-          turbidity={weatherCfg.sky.turbidity + (isNight ? 2.8 : 0)}
-          rayleigh={weatherCfg.sky.rayleigh * (isNight ? 0.35 : 1)}
-          mieCoefficient={weatherCfg.sky.mie * (isNight ? 0.55 : 1)}
-          mieDirectionalG={isNight ? 0.92 : 0.82}
+          sunPosition={sunCycle}
+          turbidity={weatherCfg.sky.turbidity + (isNight ? 3.2 : dayLight < 0.4 ? 1.1 : 0)}
+          rayleigh={weatherCfg.sky.rayleigh * (isNight ? 0.22 : dayLight < 0.4 ? 1.45 : 1)}
+          mieCoefficient={weatherCfg.sky.mie * (isNight ? 0.45 : dayLight < 0.4 ? 1.2 : 1)}
+          mieDirectionalG={isNight ? 0.94 : 0.82}
         />
+        <StarField center={center} intensity={THREE.MathUtils.smoothstep(nightBlend, 0.35, 0.95)} />
+        <mesh position={[center - 230, 220, center + 210]} visible={isNight}>
+          <sphereGeometry args={[14, 30, 30]} />
+          <meshStandardMaterial color="#eef4ff" emissive="#b9d1ff" emissiveIntensity={1.35} roughness={0.35} metalness={0.02} />
+        </mesh>
+        <mesh position={sunCycle} visible={!isNight}>
+          <sphereGeometry args={[12, 20, 20]} />
+          <meshBasicMaterial color="#ffe9b8" transparent opacity={0.82} />
+        </mesh>
         <CartoonClouds center={center} count={weatherCfg.cloudCount} opacityMult={weatherCfg.cloudOpacity} speedMult={weatherCfg.cloudSpeed} />
         <ambientLight intensity={ambientIntensity} color={isNight ? '#9db4d4' : weather === 'storm' ? '#dbe7ff' : '#eef4ff'} />
         <hemisphereLight args={[isNight ? '#2c3e50' : '#f8f6e7', isNight ? '#0f1d2b' : '#567d46', hemiIntensity]} />
@@ -423,6 +513,11 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
           shadow-camera-right={80}
           shadow-camera-top={80}
           shadow-camera-bottom={-80}
+        />
+        <directionalLight
+          position={[-160, 210, 180]}
+          intensity={moonLightIntensity}
+          color="#bdd4ff"
         />
         {weatherCfg.rain > 0 && <RainField center={center} worldSize={worldSize} intensity={weatherCfg.rain} />}
         <StormFlash center={center} enabled={weather === 'storm'} />
