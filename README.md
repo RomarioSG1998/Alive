@@ -58,8 +58,6 @@ npm run dev
 - `npm run dev`: inicia ambiente de desenvolvimento.
 - `npm run build`: gera build de produção em `dist/`.
 - `npm run preview`: pré-visualiza o build localmente.
-- `npm run build:pages`: gera build para GitHub Pages em `docs/`.
-- `npm run deploy`: publica `dist/` com `gh-pages`.
 
 ## Controles do jogo
 
@@ -90,17 +88,11 @@ Links públicos para teste:
 - Jogo: `https://romariosg1998.github.io/Alive/`
 - Página da mesa/notebook: `https://romariosg1998.github.io/Alive/desk-browser.html`
 
-Para publicar em GitHub Pages com os scripts atuais:
+Este repositório publica automaticamente no GitHub Pages via GitHub Actions
+(`.github/workflows/deploy-pages.yml`) a cada `push` na branch `main`.
 
-```bash
-npm run build:pages
-```
-
-Ou, para deploy usando `gh-pages`:
-
-```bash
-npm run deploy
-```
+Passo único no GitHub (se ainda não estiver feito):
+- Em `Settings > Pages`, selecione `Source: GitHub Actions`.
 
 ## Estrutura do projeto (resumo)
 
