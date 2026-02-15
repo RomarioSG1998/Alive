@@ -545,19 +545,35 @@ export const GameCanvas: React.FC<GameWorldProps> = ({
 
         {entities.map((ent) => {
           const scale = ent.size || 1;
+          const groundContactBias =
+            ent.type === 'WOOD' ? 0.14 * scale :
+            ent.type === 'FOOD' ? 0.1 * scale :
+            ent.type === 'STONE' ? 0.06 * scale :
+            0.08 * scale;
           const sampleR =
             ent.type === 'WOOD' ? 0.95 * scale :
             ent.type === 'STONE' ? 0.75 * scale :
             ent.type === 'FOOD' ? 0.35 * scale :
             0.7 * scale;
+          const sampleOffsets: Array<[number, number]> = [
+            [0, 0],
+            [sampleR, 0],
+            [-sampleR, 0],
+            [0, sampleR],
+            [0, -sampleR],
+            [sampleR * 0.7, sampleR * 0.7],
+            [sampleR * 0.7, -sampleR * 0.7],
+            [-sampleR * 0.7, sampleR * 0.7],
+            [-sampleR * 0.7, -sampleR * 0.7],
+          ];
           const hCenter = getTerrainHeight(ent.pos.x, ent.pos.y, worldSize, islandRadius);
-          const hX1 = getTerrainHeight(ent.pos.x + sampleR, ent.pos.y, worldSize, islandRadius);
-          const hX2 = getTerrainHeight(ent.pos.x - sampleR, ent.pos.y, worldSize, islandRadius);
-          const hZ1 = getTerrainHeight(ent.pos.x, ent.pos.y + sampleR, worldSize, islandRadius);
-          const hZ2 = getTerrainHeight(ent.pos.x, ent.pos.y - sampleR, worldSize, islandRadius);
-          const baseY = Math.min(hCenter, hX1, hX2, hZ1, hZ2);
+          const baseY = Math.min(
+            ...sampleOffsets.map(([ox, oz]) =>
+              getTerrainHeight(ent.pos.x + ox, ent.pos.y + oz, worldSize, islandRadius)
+            )
+          );
           const mountainSink = THREE.MathUtils.smoothstep(hCenter, 8, 28) * 0.22;
-          const terrainY = baseY - 0.05 - mountainSink;
+          const terrainY = baseY - groundContactBias - mountainSink;
           return (
             <group key={ent.id} position={[ent.pos.x, terrainY, ent.pos.y]}>
               <ShakeGroup entity={ent} lastHit={lastHit}>

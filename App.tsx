@@ -97,10 +97,24 @@ export default function App() {
   const cabinPosition = useMemo<WorldPosition>(() => {
     const x = WORLD_SIZE / 2 + 100;
     const z = WORLD_SIZE / 2 - 80;
+    const baseSamples: Array<[number, number]> = [
+      [x, z],
+      [x - 5.8, z - 4.8],
+      [x - 5.8, z + 4.8],
+      [x + 5.8, z - 4.8],
+      [x + 5.8, z + 4.8],
+      [x, z - 4.8],
+      [x, z + 4.8],
+      [x - 5.8, z],
+      [x + 5.8, z],
+    ];
+    const y = Math.min(
+      ...baseSamples.map(([sx, sz]) => getTerrainHeight(sx, sz, WORLD_SIZE, ISLAND_RADIUS))
+    );
     return {
       x,
       z,
-      y: getTerrainHeight(x, z, WORLD_SIZE, ISLAND_RADIUS),
+      y,
     };
   }, []);
 

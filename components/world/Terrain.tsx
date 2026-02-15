@@ -56,8 +56,9 @@ export const Terrain: React.FC<TerrainProps> = ({ worldSize, islandRadius }) => 
     }, []);
 
     const { geometry, colors } = useMemo(() => {
-        // High resolution for smooth relief
-        const segments = 120;
+        // Higher mesh resolution keeps rendered terrain closer to getTerrainHeight()
+        // so world props do not appear floating above the visible ground.
+        const segments = 420;
         const geo = new THREE.PlaneGeometry(worldSize, worldSize, segments, segments);
         const vertices = geo.attributes.position.array;
         const colorAttr = new Float32Array(vertices.length);
