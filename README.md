@@ -92,7 +92,8 @@ Este repositório publica automaticamente no GitHub Pages via GitHub Actions
 (`.github/workflows/deploy-pages.yml`) a cada `push` na branch `main`.
 
 Passo único no GitHub (se ainda não estiver feito):
-- Em `Settings > Pages`, selecione `Source: GitHub Actions`.
+- Em `Settings > Pages`, selecione `Source: Deploy from a branch`.
+- Branch: `gh-pages` e pasta: `/(root)`.
 
 ## Estrutura do projeto (resumo)
 
@@ -101,7 +102,7 @@ Passo único no GitHub (se ainda não estiver feito):
 - `services/`: áudio, IA (Gemini) e persistência.
 - `store/`: estado global com Zustand.
 - `utils/`: terreno, constantes e texturas.
-- `docs/`: artefatos para GitHub Pages.
+- `dist/`: artefatos gerados no build de produção.
 
 ## Problemas comuns
 
